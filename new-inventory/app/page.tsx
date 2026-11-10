@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Calendar } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import PrintQrModal '@/components/PrintQrModal';
+import PrintQrModal from '@/components/PrintQrModal';
 
 interface Category { 
   id: number; 
@@ -58,7 +58,6 @@ export default function MainInventorySystem() {
   const [loadingQuick, setLoadingQuick] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
-  // State ช่องค้นหาในแท็บคลังสินค้าหลัก
   const [inventorySearch, setInventorySearch] = useState('');
 
   const [alerts, setAlerts] = useState<any>({ expiring: [] });
@@ -83,7 +82,6 @@ export default function MainInventorySystem() {
   const [newCategoryRequiresSn, setNewCategoryRequiresSn] = useState(true);
   const [isSubmittingCat, setIsSubmittingCat] = useState(false);
 
-  // Bulk Tx: ตั้งใส่วันที่ปัจจุบันอัตโนมัติ
   const getTodayString = () => new Date().toISOString().split('T')[0];
   const [isBulkTxModalOpen, setIsBulkTxModalOpen] = useState(false);
   const [bulkTxType, setBulkTxType] = useState('IN');
@@ -101,7 +99,7 @@ export default function MainInventorySystem() {
   const [openTxDropdownIndex, setOpenTxDropdownIndex] = useState<number | null>(null);
   const [txProductSearch, setTxProductSearch] = useState('');
 
-  // History Modal & Filters แบบใหม่ (ทั้งหมด/รายวัน/รายเดือน/รายปี)
+  // History Modal States & Filters
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [transactionsHistory, setTransactionsHistory] = useState<Transaction[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -457,7 +455,6 @@ export default function MainInventorySystem() {
     return matchesCategoryFilter && (matchName || matchModel || matchCatName);
   });
 
-  // กรองประวัติยืดหยุ่นตามโหมดที่เลือก (ทั้งหมด/รายวัน/รายเดือน/รายปี)
   const filteredHistory = transactionsHistory.filter((tx: any) => {
     if (historyTypeFilter !== 'ALL' && tx.transactionType !== historyTypeFilter) return false;
 
@@ -1395,7 +1392,6 @@ export default function MainInventorySystem() {
                   </button>
                 </div>
 
-                {/* แถบเลือกช่วงเวลาแบบใหม่ (ทั้งหมด/รายวัน/รายเดือน/รายปี) */}
                 <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5">
                   <div className="flex flex-col">
                     <span className="text-[10px] text-slate-400">ดูช่วงไหน</span>
@@ -1575,7 +1571,7 @@ export default function MainInventorySystem() {
         </div>
       )}
 
-      {/* Modal จัดการสต็อกสินค้า (พร้อมช่องระบุวันที่ทำรายการ) */}
+      {/* Modal จัดการสต็อกสินค้า */}
       {isBulkTxModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setOpenTxDropdownIndex(null)}>
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
