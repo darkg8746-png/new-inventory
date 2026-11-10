@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Calendar } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import PrintQrModal from '@/components/PrintQrModal';
+import PrintQrModal '@/components/PrintQrModal';
 
 interface Category { 
   id: number; 
@@ -101,16 +101,19 @@ export default function MainInventorySystem() {
   const [openTxDropdownIndex, setOpenTxDropdownIndex] = useState<number | null>(null);
   const [txProductSearch, setTxProductSearch] = useState('');
 
-  // History Modal & Filters
+  // History Modal & Filters แบบใหม่ (ทั้งหมด/รายวัน/รายเดือน/รายปี)
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [transactionsHistory, setTransactionsHistory] = useState<Transaction[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<any>(null);
-  const [historyStartDate, setHistoryStartDate] = useState('');
-  const [historyEndDate, setHistoryEndDate] = useState('');
   const [historyTypeFilter, setHistoryTypeFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
   const [historySearchQuery, setHistorySearchQuery] = useState('');
-  const [historySortDirection, setHistorySortDirection] = useState<'desc' | 'asc'>('desc'); // ควบคุมการเรียงลำดับวันที่ในประวัติ
+  const [historySortDirection, setHistorySortDirection] = useState<'desc' | 'asc'>('desc');
+  
+  const [historyFilterMode, setHistoryFilterMode] = useState<'ALL' | 'DAY' | 'MONTH' | 'YEAR'>('ALL');
+  const [historySelectedDate, setHistorySelectedDate] = useState(getTodayString());
+  const [historySelectedMonth, setHistorySelectedMonth] = useState(String(new Date().getMonth() + 1));
+  const [historySelectedYear, setHistorySelectedYear] = useState(String(new Date().getFullYear()));
 
   const [machines, setMachines] = useState<Machine[]>([]);
   const [machineSearch, setMachineSearch] = useState('');
@@ -454,14 +457,23 @@ export default function MainInventorySystem() {
     return matchesCategoryFilter && (matchName || matchModel || matchCatName);
   });
 
-  // Filter และ Sort รายการประวัติแบบยืดหยุ่นตามช่วงวันที่, ประเภท, คำค้นหา และการเรียงลำดับวันที่
+  // กรองประวัติยืดหยุ่นตามโหมดที่เลือก (ทั้งหมด/รายวัน/รายเดือน/รายปี)
   const filteredHistory = transactionsHistory.filter((tx: any) => {
     if (historyTypeFilter !== 'ALL' && tx.transactionType !== historyTypeFilter) return false;
 
     if (tx.transactionDate) {
-      const txDateStr = new Date(tx.transactionDate).toISOString().split('T')[0];
-      if (historyStartDate && txDateStr < historyStartDate) return false;
-      if (historyEndDate && txDateStr > historyEndDate) return false;
+      const txDate = new Date(tx.transactionDate);
+      const txDateStr = txDate.toISOString().split('T')[0];
+      const txMonth = String(txDate.getMonth() + 1);
+      const txYear = String(txDate.getFullYear());
+
+      if (historyFilterMode === 'DAY') {
+        if (historySelectedDate && txDateStr !== historySelectedDate) return false;
+      } else if (historyFilterMode === 'MONTH') {
+        if (historySelectedMonth && txMonth !== historySelectedMonth) return false;
+      } else if (historyFilterMode === 'YEAR') {
+        if (historySelectedYear && txYear !== historySelectedYear) return false;
+      }
     }
 
     const q = historySearchQuery.toLowerCase().trim();
@@ -477,12 +489,7 @@ export default function MainInventorySystem() {
   }).sort((a: any, b: any) => {
     const dateA = new Date(a.transactionDate || 0).getTime();
     const dateB = new Date(b.transactionDate || 0).getTime();
-
-    if (historySortDirection === 'desc') {
-      return dateB - dateA; // ล่าสุด -> เก่าสุด
-    } else {
-      return dateA - dateB; // เก่าสุด -> ล่าสุด
-    }
+    return historySortDirection === 'desc' ? dateB - dateA : dateA - dateB;
   });
 
   const outOfStockItems = sortedProducts.filter(item => (item.stockQty ?? 0) === 0);
@@ -1282,7 +1289,7 @@ export default function MainInventorySystem() {
                         <span className="font-bold text-amber-400">🔧 ดึงกลับมาซ่อมบำรุง (Maintenance Service)</span>
                         <span className="text-slate-500">สถานะปัจจุบัน</span>
                       </div>
-                      <p className="text-amber-200/80">เครื่องอยู่ระหว่างการตรวจสอบและซ่อมบำรุง (แม้ยัคงผูกชื่อลูกค้าเดิมไว้เพื่อติดตามที่มา)</p>
+                      <p className="text-amber-200/80">เครื่องอยู่ระหว่างการตรวจสอบและซ่อมบำรุง (แมัยังผูกชื่อลูกค้าเดิมไว้เพื่อติดตามที่มา)</p>
                     </div>
                   )}
                 </div>
@@ -1354,7 +1361,7 @@ export default function MainInventorySystem() {
         </div>
       )}
 
-      {/* Modal ประวัติรับเข้า - เบิกออก (พร้อมระบบ Sort วันเวลา & Filter ช่วงวันที่) */}
+      {/* Modal ประวัติรับเข้า - เบิกออก (พร้อมระบบ Sort วันเวลา & Filter ช่วงเวลาแบบยืดหยุ่น) */}
       {isHistoryModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -1388,37 +1395,77 @@ export default function MainInventorySystem() {
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5">
-                  <Calendar size={14} className="text-slate-400" />
-                  <span className="text-slate-400">เริ่ม:</span>
-                  <input
-                    type="date"
-                    className="bg-transparent text-white outline-none cursor-pointer font-sans"
-                    value={historyStartDate}
-                    onChange={(e) => setHistoryStartDate(e.target.value)}
-                  />
-                  <span className="text-slate-400 ml-1">ถึง:</span>
-                  <input
-                    type="date"
-                    className="bg-transparent text-white outline-none cursor-pointer font-sans"
-                    value={historyEndDate}
-                    onChange={(e) => setHistoryEndDate(e.target.value)}
-                  />
-                  {(historyStartDate || historyEndDate) && (
-                    <button
-                      onClick={() => {
-                        setHistoryStartDate('');
-                        setHistoryEndDate('');
-                      }}
-                      className="ml-1 text-rose-400 hover:text-rose-300 hover:underline font-bold"
+                {/* แถบเลือกช่วงเวลาแบบใหม่ (ทั้งหมด/รายวัน/รายเดือน/รายปี) */}
+                <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-slate-400">ดูช่วงไหน</span>
+                    <select 
+                      className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 cursor-pointer"
+                      value={historyFilterMode}
+                      onChange={(e) => setHistoryFilterMode(e.target.value as any)}
                     >
-                      ล้างวันที่
-                    </button>
+                      <option value="ALL">ทั้งหมด</option>
+                      <option value="DAY">รายวัน</option>
+                      <option value="MONTH">รายเดือน</option>
+                      <option value="YEAR">รายปี</option>
+                    </select>
+                  </div>
+
+                  {historyFilterMode === 'DAY' && (
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-slate-400">วันที่ (เลือกรายวัน)</span>
+                      <input 
+                        type="date" 
+                        className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 font-sans cursor-pointer"
+                        value={historySelectedDate}
+                        onChange={(e) => setHistorySelectedDate(e.target.value)}
+                      />
+                    </div>
+                  )}
+
+                  {historyFilterMode === 'MONTH' && (
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-slate-400">เดือน</span>
+                      <select 
+                        className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 cursor-pointer"
+                        value={historySelectedMonth}
+                        onChange={(e) => setHistorySelectedMonth(e.target.value)}
+                      >
+                        <option value="1">มกราคม</option>
+                        <option value="2">กุมภาพันธ์</option>
+                        <option value="3">มีนาคม</option>
+                        <option value="4">เมษายน</option>
+                        <option value="5">พฤษภาคม</option>
+                        <option value="6">มิถุนายน</option>
+                        <option value="7">กรกฎาคม</option>
+                        <option value="8">สิงหาคม</option>
+                        <option value="9">กันยายน</option>
+                        <option value="10">ตุลาคม</option>
+                        <option value="11">พฤศจิกายน</option>
+                        <option value="12">ธันวาคม</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {historyFilterMode === 'YEAR' && (
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-slate-400">ปี (พ.ศ.)</span>
+                      <select 
+                        className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 cursor-pointer"
+                        value={historySelectedYear}
+                        onChange={(e) => setHistorySelectedYear(e.target.value)}
+                      >
+                        <option value="2026">2569 (2026)</option>
+                        <option value="2025">2568 (2025)</option>
+                        <option value="2024">2567 (2024)</option>
+                        <option value="2023">2566 (2023)</option>
+                      </select>
+                    </div>
                   )}
                 </div>
               </div>
 
-              <div className="relative w-full lg:w-64">
+              <div className="relative w-full lg:w-56">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                 <input
                   type="text"
