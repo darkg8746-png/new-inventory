@@ -1529,7 +1529,7 @@ export default function MainInventorySystem() {
           </div>
         </div>
       )}
-
+      
       {selectedHistoryItem && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col">
