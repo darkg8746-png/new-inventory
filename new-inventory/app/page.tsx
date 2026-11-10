@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer } from 'lucide-react';
+import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Calendar } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import PrintQrModal from '@/components/PrintQrModal';
 
@@ -83,12 +83,15 @@ export default function MainInventorySystem() {
   const [newCategoryRequiresSn, setNewCategoryRequiresSn] = useState(true);
   const [isSubmittingCat, setIsSubmittingCat] = useState(false);
 
+  // 🗓️ Bulk Tx: ตั้งใส่วันที่ปัจจุบันอัตโนมัติ
+  const getTodayString = () => new Date().toISOString().split('T')[0];
   const [isBulkTxModalOpen, setIsBulkTxModalOpen] = useState(false);
   const [bulkTxType, setBulkTxType] = useState('IN');
   const [bulkTxRef, setBulkTxRef] = useState('');
   const [bulkTxRemark, setBulkTxRemark] = useState('');
   const [bulkTxEmployee, setBulkTxEmployee] = useState(''); 
   const [bulkTxSupplier, setBulkTxSupplier] = useState('');
+  const [bulkTxDate, setBulkTxDate] = useState(getTodayString());
   
   const [bulkTxItems, setBulkTxItems] = useState<BulkTxItem[]>([
     { productId: '', quantity: 1, unitCost: '', expireDate: '' }
@@ -98,10 +101,15 @@ export default function MainInventorySystem() {
   const [openTxDropdownIndex, setOpenTxDropdownIndex] = useState<number | null>(null);
   const [txProductSearch, setTxProductSearch] = useState('');
 
+  // 🗓️ History Modal & Filters
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [transactionsHistory, setTransactionsHistory] = useState<Transaction[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<any>(null);
+  const [historyStartDate, setHistoryStartDate] = useState('');
+  const [historyEndDate, setHistoryEndDate] = useState('');
+  const [historyTypeFilter, setHistoryTypeFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
+  const [historySearchQuery, setHistorySearchQuery] = useState('');
 
   const [machines, setMachines] = useState<Machine[]>([]);
   const [machineSearch, setMachineSearch] = useState('');
@@ -145,6 +153,7 @@ export default function MainInventorySystem() {
       if (foundProd) {
         setBulkTxItems([{ productId: foundProd.productId, quantity: 1, unitCost: foundProd.unitCost || '', expireDate: '' }]);
         setBulkTxType('OUT');
+        setBulkTxDate(getTodayString());
         setIsBulkTxModalOpen(true);
       }
     }
@@ -297,6 +306,7 @@ export default function MainInventorySystem() {
         body: JSON.stringify({ 
           transactionType: bulkTxType, referenceNo: bulkTxRef, remark: bulkTxRemark, 
           employeeId: bulkTxEmployee ? Number(bulkTxEmployee) : null, supplierId: bulkTxType === 'IN' && bulkTxSupplier ? Number(bulkTxSupplier) : null, 
+          transactionDate: bulkTxDate ? new Date(bulkTxDate).toISOString() : new Date().toISOString(),
           items: itemsToSubmit
         }) 
       });
@@ -430,12 +440,8 @@ export default function MainInventorySystem() {
     }
   });
 
-  // ✅ ระบบ Filter คำค้นหา: ค้นหาทั้งชื่อสินค้า, รุ่นโมเดล และหมวดหมู่
   const displayProducts = currentListToDisplay.filter(p => {
-    // 1. กรองตามหมวดหมู่ที่เลือกติ๊กเช็กบ็อกซ์
     const matchesCategoryFilter = selectedFilterCategories.length === 0 || selectedFilterCategories.includes(p.categoryId);
-    
-    // 2. กรองตามคำค้นหาในช่อง Search (ชื่อ, โมเดล, หมวดหมู่)
     const query = inventorySearch.toLowerCase().trim();
     if (!query) return matchesCategoryFilter;
 
@@ -445,6 +451,31 @@ export default function MainInventorySystem() {
     const matchCatName = (category?.categoryName || '').toLowerCase().includes(query);
 
     return matchesCategoryFilter && (matchName || matchModel || matchCatName);
+  });
+
+  // 🗓️ Filter รายการประวัติแบบยืดหยุ่นตามช่วงวันที่, ประเภท, และคำค้นหา
+  const filteredHistory = transactionsHistory.filter((tx: any) => {
+    // 1. Filter ตามประเภท (IN/OUT/ALL)
+    if (historyTypeFilter !== 'ALL' && tx.transactionType !== historyTypeFilter) return false;
+
+    // 2. Filter ตามช่วงวันที่ (Start Date & End Date)
+    if (tx.transactionDate) {
+      const txDateStr = new Date(tx.transactionDate).toISOString().split('T')[0];
+      if (historyStartDate && txDateStr < historyStartDate) return false;
+      if (historyEndDate && txDateStr > historyEndDate) return false;
+    }
+
+    // 3. Filter ตามคำค้นหา (ชื่อสินค้า, โมเดล, เลขอ้างอิง)
+    const q = historySearchQuery.toLowerCase().trim();
+    if (q) {
+      const pName = (tx.product?.productName || '').toLowerCase();
+      const pModel = (tx.product?.productModelCode || '').toLowerCase();
+      const refNo = (tx.referenceNo || '').toLowerCase();
+      const remark = (tx.remark || '').toLowerCase();
+      return pName.includes(q) || pModel.includes(q) || refNo.includes(q) || remark.includes(q);
+    }
+
+    return true;
   });
 
   const outOfStockItems = sortedProducts.filter(item => (item.stockQty ?? 0) === 0);
@@ -640,6 +671,7 @@ export default function MainInventorySystem() {
                                       onClick={() => {
                                         setBulkTxItems([{ productId: p.productId, quantity: 1, unitCost: p.unitCost || '', expireDate: '' }]);
                                         setBulkTxType('IN');
+                                        setBulkTxDate(getTodayString());
                                         setIsBulkTxModalOpen(true);
                                       }}
                                       className="px-3.5 py-1.5 bg-white hover:bg-emerald-50 text-emerald-600 border border-emerald-500 rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm"
@@ -731,7 +763,7 @@ export default function MainInventorySystem() {
             <div className="flex flex-wrap justify-end gap-3">
               <button onClick={() => setIsPrintModalOpen(true)} className="bg-slate-800 hover:bg-slate-700 text-emerald-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><Printer size={18} /> พิมพ์ป้าย QR Code</button>
               <button onClick={fetchHistory} className="bg-slate-800 hover:bg-slate-700 text-blue-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><ClipboardList size={18} /> ประวัติรับ/เบิก</button>
-              <button onClick={() => { setBulkTxItems([{ productId: '', quantity: 1, unitCost: '', expireDate: '' }]); setBulkTxRef(''); setBulkTxRemark(''); setBulkTxEmployee(''); setBulkTxSupplier(''); setBulkTxType('IN'); setIsBulkTxModalOpen(true); }} className="bg-slate-800 hover:bg-slate-700 text-emerald-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><ArrowRightLeft size={18} /> จัดการสต็อก (รับ/เบิก)</button>
+              <button onClick={() => { setBulkTxItems([{ productId: '', quantity: 1, unitCost: '', expireDate: '' }]); setBulkTxRef(''); setBulkTxRemark(''); setBulkTxEmployee(''); setBulkTxSupplier(''); setBulkTxType('IN'); setBulkTxDate(getTodayString()); setIsBulkTxModalOpen(true); }} className="bg-slate-800 hover:bg-slate-700 text-emerald-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><ArrowRightLeft size={18} /> จัดการสต็อก (รับ/เบิก)</button>
               <button onClick={() => setIsCategoryModalOpen(true)} className="bg-slate-800 hover:bg-slate-700 text-amber-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><FolderPlus size={18} /> จัดการหมวดหมู่</button>
               <button onClick={() => setIsAddModalOpen(true)} className="bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition shadow-lg shadow-amber-600/20"><Plus size={18} /> เพิ่มสินค้าใหม่</button>
             </div>
@@ -767,7 +799,6 @@ export default function MainInventorySystem() {
                 </h3>
                 
                 <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-                  {/* 🔍 ช่องค้นหาสินค้า: ค้นหาทั้งชื่อ, โมเดล, และประเภทหมวดหมู่ */}
                   <div className="relative w-full sm:w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                     <input 
@@ -787,7 +818,6 @@ export default function MainInventorySystem() {
                     )}
                   </div>
 
-                  {/* ตัวกรองหมวดหมู่ */}
                   <div className="relative w-full sm:w-auto" onClick={(e) => e.stopPropagation()}>
                     <button onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)} className="flex items-center justify-between gap-2 w-full sm:w-64 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none hover:border-amber-500 transition">
                       <div className="flex items-center gap-2"><Filter size={16} className={selectedFilterCategories.length > 0 ? "text-amber-500" : "text-slate-400"} /><span>{selectedFilterCategories.length === 0 ? 'แสดงทุกหมวดหมู่' : `กรองอยู่ (${selectedFilterCategories.length} หมวดหมู่)`}</span></div><ChevronDown size={16} className="text-slate-400" />
@@ -1317,22 +1347,113 @@ export default function MainInventorySystem() {
         </div>
       )}
 
+      {/* 📋 Modal ประวัติรับเข้า - เบิกออก (พร้อมระบบ Sort & Filter ช่วงวันที่) */}
       {isHistoryModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-800/30">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2"><ClipboardList className="text-blue-400" size={20} /> ประวัติการรับเข้า - เบิกออกสต็อก</h2>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <ClipboardList className="text-blue-400" size={20} /> ประวัติการรับเข้า - เบิกออกสต็อก
+              </h2>
               <button onClick={() => setIsHistoryModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
             </div>
+
+            {/* 🔍 คอนโทรลบาร์: กรองตามช่วงวันที่, ประเภท (รับ/เบิก), และคำค้นหา */}
+            <div className="p-4 bg-slate-950/80 border-b border-slate-800 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 text-xs">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* ปุ่มลัดเลือกประเภท */}
+                <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
+                  <button 
+                    onClick={() => setHistoryTypeFilter('ALL')} 
+                    className={`px-3 py-1.5 rounded-lg font-bold transition ${historyTypeFilter === 'ALL' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    ทั้งหมด
+                  </button>
+                  <button 
+                    onClick={() => setHistoryTypeFilter('IN')} 
+                    className={`px-3 py-1.5 rounded-lg font-bold transition ${historyTypeFilter === 'IN' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    รับเข้า (IN)
+                  </button>
+                  <button 
+                    onClick={() => setHistoryTypeFilter('OUT')} 
+                    className={`px-3 py-1.5 rounded-lg font-bold transition ${historyTypeFilter === 'OUT' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    เบิกออก (OUT)
+                  </button>
+                </div>
+
+                {/* ตัวเลือกช่วงวันที่ */}
+                <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5">
+                  <Calendar size={14} className="text-slate-400" />
+                  <span className="text-slate-400">เริ่ม:</span>
+                  <input
+                    type="date"
+                    className="bg-transparent text-white outline-none cursor-pointer font-sans"
+                    value={historyStartDate}
+                    onChange={(e) => setHistoryStartDate(e.target.value)}
+                  />
+                  <span className="text-slate-400 ml-1">ถึง:</span>
+                  <input
+                    type="date"
+                    className="bg-transparent text-white outline-none cursor-pointer font-sans"
+                    value={historyEndDate}
+                    onChange={(e) => setHistoryEndDate(e.target.value)}
+                  />
+                  {(historyStartDate || historyEndDate) && (
+                    <button
+                      onClick={() => {
+                        setHistoryStartDate('');
+                        setHistoryEndDate('');
+                      }}
+                      className="ml-1 text-rose-400 hover:text-rose-300 hover:underline font-bold"
+                    >
+                      ล้างวันที่
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* ช่องค้นหาสินค้า / อ้างอิง */}
+              <div className="relative w-full lg:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                <input
+                  type="text"
+                  placeholder="ค้นชื่อสินค้า, โมเดล, PO..."
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-8 py-2 text-white outline-none focus:border-blue-500 transition"
+                  value={historySearchQuery}
+                  onChange={(e) => setHistorySearchQuery(e.target.value)}
+                />
+                {historySearchQuery && (
+                  <button onClick={() => setHistorySearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="p-0 overflow-y-auto flex-1">
               <table className="w-full text-left border-collapse">
-                <thead className="sticky top-0 bg-slate-900 z-10"><tr className="bg-slate-950/90 text-slate-400 text-xs uppercase border-b border-slate-800"><th className="p-4 font-semibold">วันเวลา</th><th className="p-4 font-semibold text-center">ประเภท</th><th className="p-4 font-semibold">สินค้า</th><th className="p-4 font-semibold text-center">จำนวน</th><th className="p-4 font-semibold">อ้างอิง / PO</th><th className="p-4 font-semibold text-center">ดูไส้ใน Lot</th></tr></thead>
+                <thead className="sticky top-0 bg-slate-900 z-10">
+                  <tr className="bg-slate-950/90 text-slate-400 text-xs uppercase border-b border-slate-800">
+                    <th className="p-4 font-semibold">วันเวลา</th>
+                    <th className="p-4 font-semibold text-center">ประเภท</th>
+                    <th className="p-4 font-semibold">สินค้า</th>
+                    <th className="p-4 font-semibold text-center">จำนวน</th>
+                    <th className="p-4 font-semibold">อ้างอิง / PO</th>
+                    <th className="p-4 font-semibold text-center">ดูไส้ใน LOT</th>
+                  </tr>
+                </thead>
                 <tbody className="divide-y divide-slate-800/50 text-sm">
-                  {loadingHistory ? (<tr><td colSpan={6} className="p-16 text-center text-slate-400">กำลังโหลด...</td></tr>) : transactionsHistory.length === 0 ? (<tr><td colSpan={6} className="p-16 text-center text-slate-400">ยังไม่มีประวัติ</td></tr>) : (
-                    transactionsHistory.map((tx: any) => (
+                  {loadingHistory ? (
+                    <tr><td colSpan={6} className="p-16 text-center text-slate-400">กำลังโหลด...</td></tr>
+                  ) : filteredHistory.length === 0 ? (
+                    <tr><td colSpan={6} className="p-16 text-center text-slate-400">ไม่พบข้อมูลประวัติที่ค้นหา</td></tr>
+                  ) : (
+                    filteredHistory.map((tx: any) => (
                       <tr key={tx.transactionId} className="hover:bg-slate-800/40 transition">
                         <td className="p-4 text-slate-300 font-mono text-xs">{new Date(tx.transactionDate).toLocaleString('th-TH')}</td>
-                        <td className="p-4 text-center">{tx.transactionType === 'IN' ? <span className="px-2 py-0.5 rounded text-xs font-bold bg-emerald-500/10 text-emerald-400">รับเข้า</span> : <span className="px-2 py-0.5 rounded text-xs font-bold bg-rose-500/10 text-rose-400">เบิกออก</span>}</td>
+                        <td className="p-4 text-center">{tx.transactionType === 'IN' ? <span className="px-2 py-0.5 rounded text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">รับเข้า</span> : <span className="px-2 py-0.5 rounded text-xs font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">เบิกออก</span>}</td>
                         <td className="p-4 text-white font-medium">{tx.product?.productName || '-'}</td>
                         <td className="p-4 text-center font-bold">{tx.transactionType === 'IN' ? '+' : '-'}{tx.quantity}</td>
                         <td className="p-4 text-slate-400 font-mono text-xs">{tx.referenceNo || '-'}</td>
@@ -1343,7 +1464,10 @@ export default function MainInventorySystem() {
                 </tbody>
               </table>
             </div>
-            <div className="p-4 border-t border-slate-800 flex justify-end"><button onClick={() => setIsHistoryModalOpen(false)} className="px-5 py-2 bg-slate-800 rounded-xl text-slate-300">ปิด</button></div>
+            <div className="p-4 border-t border-slate-800 flex justify-between items-center bg-slate-950/40">
+              <span className="text-xs text-slate-400">แสดงผล <strong className="text-blue-400 font-mono">{filteredHistory.length}</strong> จากทั้งหมด {transactionsHistory.length} รายการ</span>
+              <button onClick={() => setIsHistoryModalOpen(false)} className="px-5 py-2 bg-slate-800 rounded-xl text-slate-300 text-xs font-semibold hover:bg-slate-700">ปิดหน้าต่าง</button>
+            </div>
           </div>
         </div>
       )}
@@ -1391,6 +1515,7 @@ export default function MainInventorySystem() {
         </div>
       )}
 
+      {/* 📦 Modal จัดการสต็อกสินค้า (พร้อมช่องระบุวันที่ทำรายการ) */}
       {isBulkTxModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setOpenTxDropdownIndex(null)}>
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
@@ -1404,11 +1529,25 @@ export default function MainInventorySystem() {
                   <div><label className="block mb-1.5 text-sm text-slate-400">ประเภทรายการ *</label><select className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxType} onChange={(e) => setBulkTxType(e.target.value)}><option value="IN">รับของเข้าสต็อก (รัน Lot ใหม่)</option><option value="OUT">เบิกของออกไปใช้ (ตัด Lot เก่าสุดก่อน)</option></select></div>
                   <div><label className="block mb-1.5 text-sm text-slate-400">{bulkTxType === 'IN' ? 'เลขที่บิลรับเข้า (จะถูกใช้เป็น Lot No.)' : 'เลขที่อ้างอิงใบเบิก'}</label><input type="text" placeholder={bulkTxType === 'IN' ? 'เช่น PO-2026-001' : 'เช่น ใบเบิก-001'} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxRef} onChange={(e) => setBulkTxRef(e.target.value)} /></div>
                 </div>
+
+                {/* 📅 ช่องวันที่ทำรายการ (Default วันที่ปัจจุบัน) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block mb-1.5 text-sm text-emerald-400 font-medium">วันที่ทำรายการ *</label>
+                    <input 
+                      type="date" 
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-emerald-500 font-sans" 
+                      value={bulkTxDate} 
+                      onChange={(e) => setBulkTxDate(e.target.value)} 
+                    />
+                  </div>
                   <div><label className="block mb-1.5 text-sm text-slate-400">รหัสพนักงาน (ตัวเลข)</label><input type="number" placeholder="เช่น 101" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxEmployee} onChange={(e) => setBulkTxEmployee(e.target.value)} /></div>
-                  {bulkTxType === 'IN' && (<div><label className="block mb-1.5 text-sm text-slate-400">รหัสซัพพลายเออร์ (ตัวเลข)</label><input type="number" placeholder="เช่น 505" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxSupplier} onChange={(e) => setBulkTxSupplier(e.target.value)} /></div>)}
                 </div>
-                <div><label className="block mb-1.5 text-sm text-slate-400">หมายเหตุ</label><input type="text" placeholder="ระบุเหตุผล" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxRemark} onChange={(e) => setBulkTxRemark(e.target.value)} /></div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {bulkTxType === 'IN' && (<div><label className="block mb-1.5 text-sm text-slate-400">รหัสซัพพลายเออร์ (ตัวเลข)</label><input type="number" placeholder="เช่น 505" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxSupplier} onChange={(e) => setBulkTxSupplier(e.target.value)} /></div>)}
+                  <div className={bulkTxType === 'IN' ? '' : 'md:col-span-2'}><label className="block mb-1.5 text-sm text-slate-400">หมายเหตุ</label><input type="text" placeholder="ระบุเหตุผล" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxRemark} onChange={(e) => setBulkTxRemark(e.target.value)} /></div>
+                </div>
               </div>
               <div>
                 <h3 className="text-sm font-medium text-slate-400 mb-3">รายการสินค้า</h3>
