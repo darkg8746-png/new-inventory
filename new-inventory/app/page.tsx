@@ -110,6 +110,7 @@ export default function MainInventorySystem() {
   const [historyEndDate, setHistoryEndDate] = useState('');
   const [historyTypeFilter, setHistoryTypeFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
   const [historySearchQuery, setHistorySearchQuery] = useState('');
+  const [historySortDirection, setHistorySortDirection] = useState<'desc' | 'asc'>('desc'); // ควบคุมการเรียงลำดับวันที่ในประวัติ
 
   const [machines, setMachines] = useState<Machine[]>([]);
   const [machineSearch, setMachineSearch] = useState('');
@@ -453,7 +454,7 @@ export default function MainInventorySystem() {
     return matchesCategoryFilter && (matchName || matchModel || matchCatName);
   });
 
-  // Filter รายการประวัติแบบยืดหยุ่นตามช่วงวันที่, ประเภท, และคำค้นหา
+  // Filter และ Sort รายการประวัติแบบยืดหยุ่นตามช่วงวันที่, ประเภท, คำค้นหา และการเรียงลำดับวันที่
   const filteredHistory = transactionsHistory.filter((tx: any) => {
     if (historyTypeFilter !== 'ALL' && tx.transactionType !== historyTypeFilter) return false;
 
@@ -473,6 +474,15 @@ export default function MainInventorySystem() {
     }
 
     return true;
+  }).sort((a: any, b: any) => {
+    const dateA = new Date(a.transactionDate || 0).getTime();
+    const dateB = new Date(b.transactionDate || 0).getTime();
+
+    if (historySortDirection === 'desc') {
+      return dateB - dateA; // ล่าสุด -> เก่าสุด
+    } else {
+      return dateA - dateB; // เก่าสุด -> ล่าสุด
+    }
   });
 
   const outOfStockItems = sortedProducts.filter(item => (item.stockQty ?? 0) === 0);
@@ -1344,7 +1354,7 @@ export default function MainInventorySystem() {
         </div>
       )}
 
-      {/* Modal ประวัติรับเข้า - เบิกออก (พร้อมระบบ Sort & Filter ช่วงวันที่) */}
+      {/* Modal ประวัติรับเข้า - เบิกออก (พร้อมระบบ Sort วันเวลา & Filter ช่วงวันที่) */}
       {isHistoryModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -1429,7 +1439,17 @@ export default function MainInventorySystem() {
               <table className="w-full text-left border-collapse">
                 <thead className="sticky top-0 bg-slate-900 z-10">
                   <tr className="bg-slate-950/90 text-slate-400 text-xs uppercase border-b border-slate-800">
-                    <th className="p-4 font-semibold">วันเวลา</th>
+                    <th 
+                      className="p-4 font-semibold cursor-pointer hover:text-white transition select-none"
+                      onClick={() => setHistorySortDirection(prev => prev === 'desc' ? 'asc' : 'desc')}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>วันเวลา</span>
+                        <span className="text-amber-400 font-bold">
+                          {historySortDirection === 'desc' ? '🔽 ล่าสุด' : '🔼 เก่าสุด'}
+                        </span>
+                      </div>
+                    </th>
                     <th className="p-4 font-semibold text-center">ประเภท</th>
                     <th className="p-4 font-semibold">สินค้า</th>
                     <th className="p-4 font-semibold text-center">จำนวน</th>
