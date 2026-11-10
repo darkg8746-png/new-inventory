@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Calendar } from 'lucide-react';
+import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Coins, Layers } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import PrintQrModal from '@/components/PrintQrModal';
 
@@ -19,7 +19,7 @@ interface Product {
 interface Transaction {
   transactionId: number; productId: number; transactionType: string;
   quantity: number; transactionDate: string; referenceNo: string | null; remark: string | null;
-  employeeId: number | null; supplierId: number | null;
+  employeeId: number | null; supplierId: number | null; lotDetails?: any[];
   product: Product;
 }
 interface Customer {
@@ -557,7 +557,7 @@ export default function MainInventorySystem() {
     .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 5);
 
-  // คำนวณข้อมูลกราฟ Stock Movement Trend แยกตามเดือน (YYYY-MM)
+  // คำนวณข้อมูล Stock Movement Trend รายเดือน (YYYY-MM)
   const monthlyTrendMap: { [key: string]: { monthKey: string; monthLabel: string; inQty: number; outQty: number } } = {};
   const monthNamesThai = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
@@ -582,7 +582,44 @@ export default function MainInventorySystem() {
 
   const stockMovementTrendData = Object.values(monthlyTrendMap)
     .sort((a, b) => a.monthKey.localeCompare(b.monthKey))
-    .slice(-6); // ดึงย้อนหลังสูงสุด 6 เดือนล่าสุด
+    .slice(-6);
+
+  // ----------------------------------------------------
+  // คำนวณยอดใช้งานและต้นทุนรวม แยกตามหมวดหมู่ (Category Usage & Expense)
+  // ----------------------------------------------------
+  const categoryUsageMap: { [catName: string]: { categoryName: string; totalQty: number; totalCost: number } } = {};
+  let globalTotalOutboundCost = 0;
+
+  transactionsHistory.forEach(tx => {
+    if (tx.transactionType === 'OUT' && tx.product) {
+      const catId = tx.product.categoryId;
+      const catObj = safeCategories.find(c => c.id === catId);
+      const catName = catObj?.categoryName || 'อื่นๆ (ไม่ระบุหมวดหมู่)';
+      const qty = Number(tx.quantity || 0);
+
+      let costForThisTx = 0;
+      if (tx.lotDetails && tx.lotDetails.length > 0) {
+        costForThisTx = tx.lotDetails.reduce((sum: number, ld: any) => sum + (ld.quantityUsed * (ld.costApplied || 0)), 0);
+      } else {
+        costForThisTx = qty * Number(tx.product.unitCost || 0);
+      }
+
+      globalTotalOutboundCost += costForThisTx;
+
+      if (!categoryUsageMap[catName]) {
+        categoryUsageMap[catName] = { categoryName: catName, totalQty: 0, totalCost: 0 };
+      }
+      categoryUsageMap[catName].totalQty += qty;
+      categoryUsageMap[catName].totalCost += costForThisTx;
+    }
+  });
+
+  const categoryUsageCostData = Object.values(categoryUsageMap)
+    .map(item => ({
+      ...item,
+      percentageShare: globalTotalOutboundCost > 0 ? ((item.totalCost / globalTotalOutboundCost) * 100).toFixed(1) : '0.0'
+    }))
+    .sort((a, b) => b.totalCost - a.totalCost);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -1063,7 +1100,7 @@ export default function MainInventorySystem() {
                 ) : (<div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีข้อมูลสถานะเครื่องจักร</div>)}
               </div>
 
-              {/* 2. [ใหม่!] กราฟไทม์ไลน์การรับ-เบิกสต็อก (Stock Movement Trend) */}
+              {/* 2. กราฟไทม์ไลน์การรับ-เบิกสต็อก (Stock Movement Trend) */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
                 <h3 className="font-bold text-base text-white flex items-center gap-2">
                   <TrendingUp className="text-emerald-400" size={18} /> แนวโน้มการรับเข้า VS เบิกออก รายเดือน
@@ -1132,6 +1169,73 @@ export default function MainInventorySystem() {
                   </div>
                 ) : (<div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีประวัติการเบิกออก</div>)}
               </div>
+            </div>
+
+            {/* 5. [ใหม่!] การ์ดสรุปยอดการใช้งานและต้นทุนรวม แยกตามหมวดหมู่ (Dual Bar Chart + Table) */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <div>
+                  <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                    <Coins className="text-amber-400" size={20} /> สรุปยอดการใช้งานและมูลค่าเงินรวม แยกตามหมวดหมู่
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">เปรียบเทียบจำนวนชิ้นที่เบิกใช้งาน กับมูลค่าต้นทุนจริงที่เบิกออกไป (คำนวณจาก FIFO)</p>
+                </div>
+                <div className="bg-slate-950 px-4 py-2 rounded-xl border border-slate-800 text-xs">
+                  <span className="text-slate-400">มูลค่าเบิกออกรวมทั้งหมด: </span>
+                  <strong className="text-amber-400 font-mono text-sm ml-1">{globalTotalOutboundCost.toLocaleString()} ฿</strong>
+                </div>
+              </div>
+
+              {categoryUsageCostData.length > 0 ? (
+                <>
+                  <div className="h-72 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={categoryUsageCostData} margin={{ top: 10, right: 30, left: 10, bottom: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="categoryName" stroke="#94a3b8" fontSize={11} interval={0} angle={-10} textAnchor="end" />
+                        <YAxis yAxisId="left" stroke="#8b5cf6" fontSize={11} tickFormatter={(val) => `${val.toLocaleString()}฿`} />
+                        <YAxis yAxisId="right" orientation="right" stroke="#10b981" fontSize={11} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }} />
+                        <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: '12px', color: '#94a3b8' }} />
+                        <Bar yAxisId="left" dataKey="totalCost" name="มูลค่าต้นทุน (บาท)" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={24} />
+                        <Bar yAxisId="right" dataKey="totalQty" name="ปริมาณการเบิก (ชิ้น)" fill="#10b981" radius={[4, 4, 0, 0]} barSize={24} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-xl border border-slate-800">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-950 text-slate-400 uppercase border-b border-slate-800">
+                          <th className="p-3.5">หมวดหมู่สินค้า</th>
+                          <th className="p-3.5 text-center">ปริมาณการเบิกใช้รวม</th>
+                          <th className="p-3.5 text-right">มูลค่าต้นทุนรวม (฿)</th>
+                          <th className="p-3.5 text-right">สัดส่วนค่าใช้จ่าย (%)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 text-slate-300">
+                        {categoryUsageCostData.map((row, idx) => (
+                          <tr key={idx} className="hover:bg-slate-800/40 transition">
+                            <td className="p-3.5 font-semibold text-white flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0"></span>
+                              {row.categoryName}
+                            </td>
+                            <td className="p-3.5 text-center font-mono font-bold text-emerald-400">{row.totalQty.toLocaleString()} ชิ้น</td>
+                            <td className="p-3.5 text-right font-mono font-bold text-purple-400">{row.totalCost.toLocaleString()} ฿</td>
+                            <td className="p-3.5 text-right font-mono text-slate-400">
+                              <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-amber-300 font-bold">{row.percentageShare}%</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="p-12 text-center text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800">
+                  ยังไม่มีประวัติการเบิกออกในระบบ
+                </div>
+              )}
             </div>
 
             <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-6 shadow-2xl space-y-4">
@@ -1440,7 +1544,7 @@ export default function MainInventorySystem() {
         </div>
       )}
 
-      {/* Modal ประวัติรับเข้า - เบิกออก (พร้อมระบบ Sort วันเวลา & Filter ช่วงเวลาแบบยืดหยุ่น) */}
+      {/* Modal ประวัติรับเข้า - เบิกออก */}
       {isHistoryModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col h-[85vh]">
@@ -1451,7 +1555,6 @@ export default function MainInventorySystem() {
               <button onClick={() => setIsHistoryModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
             </div>
 
-            {/* แถบฟิลเตอร์ประเภท และ ช่วงเวลา (รายวัน/รายเดือน/รายปี/กำหนดเอง) */}
             <div className="p-4 bg-slate-950/90 border-b border-slate-800 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 text-xs shrink-0">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
@@ -1475,7 +1578,6 @@ export default function MainInventorySystem() {
                   </button>
                 </div>
 
-                {/* ตัวเลือกโหมดดูช่วงเวลาแบบยืดหยุ่น */}
                 <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5">
                   <div className="flex flex-col">
                     <span className="text-[10px] text-slate-400">ดูช่วงเวลา</span>
