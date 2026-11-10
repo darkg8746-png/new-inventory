@@ -82,6 +82,7 @@ export default function MainInventorySystem() {
   const [newCategoryRequiresSn, setNewCategoryRequiresSn] = useState(true);
   const [isSubmittingCat, setIsSubmittingCat] = useState(false);
 
+  // แก้ไขการเรียกใช้งานวันที่ให้ปลอดภัยต่อการ Build (SSR Safe)
   const getTodayString = () => new Date().toISOString().split('T')[0];
   const [isBulkTxModalOpen, setIsBulkTxModalOpen] = useState(false);
   const [bulkTxType, setBulkTxType] = useState('IN');
@@ -89,7 +90,11 @@ export default function MainInventorySystem() {
   const [bulkTxRemark, setBulkTxRemark] = useState('');
   const [bulkTxEmployee, setBulkTxEmployee] = useState(''); 
   const [bulkTxSupplier, setBulkTxSupplier] = useState('');
-  const [bulkTxDate, setBulkTxDate] = useState(getTodayString());
+  const [bulkTxDate, setBulkTxDate] = useState('');
+  
+  useEffect(() => {
+    setBulkTxDate(getTodayString());
+  }, []);
   
   const [bulkTxItems, setBulkTxItems] = useState<BulkTxItem[]>([
     { productId: '', quantity: 1, unitCost: '', expireDate: '' }
@@ -109,9 +114,16 @@ export default function MainInventorySystem() {
   const [historySortDirection, setHistorySortDirection] = useState<'desc' | 'asc'>('desc');
   
   const [historyFilterMode, setHistoryFilterMode] = useState<'ALL' | 'DAY' | 'MONTH' | 'YEAR'>('ALL');
-  const [historySelectedDate, setHistorySelectedDate] = useState(getTodayString());
-  const [historySelectedMonth, setHistorySelectedMonth] = useState(String(new Date().getMonth() + 1));
-  const [historySelectedYear, setHistorySelectedYear] = useState(String(new Date().getFullYear()));
+  const [historySelectedDate, setHistorySelectedDate] = useState('');
+  const [historySelectedMonth, setHistorySelectedMonth] = useState('');
+  const [historySelectedYear, setHistorySelectedYear] = useState('');
+
+  useEffect(() => {
+    const today = getTodayString();
+    setHistorySelectedDate(today);
+    setHistorySelectedMonth(String(new Date().getMonth() + 1));
+    setHistorySelectedYear(String(new Date().getFullYear()));
+  }, []);
 
   const [machines, setMachines] = useState<Machine[]>([]);
   const [machineSearch, setMachineSearch] = useState('');
@@ -1362,8 +1374,6 @@ export default function MainInventorySystem() {
       {isHistoryModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col h-[85vh]">
-            
-            {/* Header */}
             <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-800/30 shrink-0">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <ClipboardList className="text-blue-400" size={20} /> ประวัติการรับเข้า - เบิกออกสต็อก
@@ -1371,7 +1381,7 @@ export default function MainInventorySystem() {
               <button onClick={() => setIsHistoryModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
             </div>
 
-            {/* แถบฟิลเตอร์ประเภท และ ช่วงเวลา (ล็อกให้อยู่ข้างบนเสมอ ไม่เลื่อนหนี) */}
+            {/* แถบฟิลเตอร์ประเภท และ ช่วงเวลา (รายวัน/รายเดือน/รายปี) */}
             <div className="p-4 bg-slate-950/90 border-b border-slate-800 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 text-xs shrink-0">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
@@ -1482,7 +1492,6 @@ export default function MainInventorySystem() {
               </div>
             </div>
 
-            {/* ตารางข้อมูล (ให้ scroll เฉพาะส่วนนี้) */}
             <div className="flex-1 overflow-y-auto">
               <table className="w-full text-left border-collapse">
                 <thead className="sticky top-0 bg-slate-900 z-10">
@@ -1525,17 +1534,14 @@ export default function MainInventorySystem() {
                 </tbody>
               </table>
             </div>
-
-            {/* Footer */}
             <div className="p-4 border-t border-slate-800 flex justify-between items-center bg-slate-950/40 shrink-0">
               <span className="text-xs text-slate-400">แสดงผล <strong className="text-blue-400 font-mono">{filteredHistory.length}</strong> จากทั้งหมด {transactionsHistory.length} รายการ</span>
               <button onClick={() => setIsHistoryModalOpen(false)} className="px-5 py-2 bg-slate-800 rounded-xl text-slate-300 text-xs font-semibold hover:bg-slate-700">ปิดหน้าต่าง</button>
             </div>
-
           </div>
         </div>
-      )} 
-      
+      )}
+
       {selectedHistoryItem && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col">
