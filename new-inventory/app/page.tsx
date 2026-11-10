@@ -1369,7 +1369,8 @@ export default function MainInventorySystem() {
               <button onClick={() => setIsHistoryModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
             </div>
 
-            <div className="p-4 bg-slate-950/80 border-b border-slate-800 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 text-xs">
+            {/* แถบฟิลเตอร์ประเภท และ ช่วงเวลา (รายวัน/รายเดือน/รายปี) */}
+            <div className="p-4 bg-slate-950/90 border-b border-slate-800 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 text-xs">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
                   <button 
@@ -1392,27 +1393,28 @@ export default function MainInventorySystem() {
                   </button>
                 </div>
 
+                {/* ตัวเลือกโหมดดูช่วงเวลาแบบยืดหยุ่น */}
                 <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5">
                   <div className="flex flex-col">
-                    <span className="text-[10px] text-slate-400">ดูช่วงไหน</span>
+                    <span className="text-[10px] text-slate-400">ดูช่วงเวลา</span>
                     <select 
-                      className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 cursor-pointer"
+                      className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 cursor-pointer text-xs"
                       value={historyFilterMode}
                       onChange={(e) => setHistoryFilterMode(e.target.value as any)}
                     >
-                      <option value="ALL">ทั้งหมด</option>
-                      <option value="DAY">รายวัน</option>
-                      <option value="MONTH">รายเดือน</option>
-                      <option value="YEAR">รายปี</option>
+                      <option value="ALL">ทั้งหมด (All Time)</option>
+                      <option value="DAY">รายวัน (Daily)</option>
+                      <option value="MONTH">รายเดือน (Monthly)</option>
+                      <option value="YEAR">รายปี (Yearly)</option>
                     </select>
                   </div>
 
                   {historyFilterMode === 'DAY' && (
                     <div className="flex flex-col">
-                      <span className="text-[10px] text-slate-400">วันที่ (เลือกรายวัน)</span>
+                      <span className="text-[10px] text-slate-400">เลือกวันที่</span>
                       <input 
                         type="date" 
-                        className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 font-sans cursor-pointer"
+                        className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 font-sans cursor-pointer text-xs"
                         value={historySelectedDate}
                         onChange={(e) => setHistorySelectedDate(e.target.value)}
                       />
@@ -1421,9 +1423,9 @@ export default function MainInventorySystem() {
 
                   {historyFilterMode === 'MONTH' && (
                     <div className="flex flex-col">
-                      <span className="text-[10px] text-slate-400">เดือน</span>
+                      <span className="text-[10px] text-slate-400">เลือกเดือน</span>
                       <select 
-                        className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 cursor-pointer"
+                        className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 cursor-pointer text-xs"
                         value={historySelectedMonth}
                         onChange={(e) => setHistorySelectedMonth(e.target.value)}
                       >
@@ -1445,9 +1447,9 @@ export default function MainInventorySystem() {
 
                   {historyFilterMode === 'YEAR' && (
                     <div className="flex flex-col">
-                      <span className="text-[10px] text-slate-400">ปี (พ.ศ.)</span>
+                      <span className="text-[10px] text-slate-400">เลือกปี (พ.ศ.)</span>
                       <select 
-                        className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 cursor-pointer"
+                        className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 cursor-pointer text-xs"
                         value={historySelectedYear}
                         onChange={(e) => setHistorySelectedYear(e.target.value)}
                       >
@@ -1466,7 +1468,7 @@ export default function MainInventorySystem() {
                 <input
                   type="text"
                   placeholder="ค้นชื่อสินค้า, โมเดล, PO..."
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-8 py-2 text-white outline-none focus:border-blue-500 transition"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-8 py-2 text-white outline-none focus:border-blue-500 transition text-xs"
                   value={historySearchQuery}
                   onChange={(e) => setHistorySearchQuery(e.target.value)}
                 />
