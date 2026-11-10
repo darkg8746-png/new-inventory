@@ -389,13 +389,13 @@ export default function MainInventorySystem() {
     if (isBladeItem) return true;
 
     const isKitchenMachine = catName.includes('food cutting machine') || catName.includes('bone saw') || catName.includes('stuffing') || 
-                             catName.includes('peeler') || catName.includes('cutter') || catName.includes('mixer') || 
-                             catName.includes('mincer') || catName.includes('slicing') || catName.includes('slicer') || 
-                             catName.includes('hamburger') || catName.includes('eggeater') || catName.includes('sausage') ||
-                             pName.includes('food cutting machine') || pName.includes('bone saw') || pName.includes('stuffing') || 
-                             pName.includes('peeler') || pName.includes('cutter') || pName.includes('mixer') || 
-                             pName.includes('mincer') || pName.includes('slicing') || pName.includes('slicer') || 
-                             pName.includes('hamburger') || pName.includes('eggeater') || pName.includes('sausage');
+                           catName.includes('peeler') || catName.includes('cutter') || catName.includes('mixer') || 
+                           catName.includes('mincer') || catName.includes('slicing') || catName.includes('slicer') || 
+                           catName.includes('hamburger') || catName.includes('eggeater') || catName.includes('sausage') ||
+                           pName.includes('food cutting machine') || pName.includes('bone saw') || pName.includes('stuffing') || 
+                           pName.includes('peeler') || pName.includes('cutter') || pName.includes('mixer') || 
+                           pName.includes('mincer') || pName.includes('slicing') || pName.includes('slicer') || 
+                           pName.includes('hamburger') || pName.includes('eggeater') || pName.includes('sausage');
 
     if (isKitchenMachine) return false;
 
@@ -423,11 +423,11 @@ export default function MainInventorySystem() {
     const isBladeCat = catName.includes('blade') || catName.includes('ใบมีด');
 
     const isKitchenMachineCat = !isBladeCat && !isExplicitConsumable && (
-                                catName.includes('food cutting machine') || catName.includes('bone saw') || 
-                                catName.includes('stuffing') || catName.includes('peeler') || catName.includes('cutter') || 
-                                catName.includes('mixer') || catName.includes('mincer') || catName.includes('slicing') || 
-                                catName.includes('slicer') || catName.includes('hamburger') || catName.includes('eggeater') || 
-                                catName.includes('sausage'));
+                            catName.includes('food cutting machine') || catName.includes('bone saw') || 
+                            catName.includes('stuffing') || catName.includes('peeler') || catName.includes('cutter') || 
+                            catName.includes('mixer') || catName.includes('mincer') || catName.includes('slicing') || 
+                            catName.includes('slicer') || catName.includes('hamburger') || catName.includes('eggeater') || 
+                            catName.includes('sausage'));
 
     const isConsumableCat = isExplicitConsumable || isBladeCat || (!isKitchenMachineCat && (
                             catId === 5 || catId === 6 || catId === 8 || catId === 9 || catId === 10 || (catId >= 17 && catId <= 43) ||
