@@ -58,7 +58,7 @@ export default function MainInventorySystem() {
   const [loadingQuick, setLoadingQuick] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
-  // State สำหรับช่องค้นหาในแท็บคลังสินค้าหลัก
+  // State ช่องค้นหาในแท็บคลังสินค้าหลัก
   const [inventorySearch, setInventorySearch] = useState('');
 
   const [alerts, setAlerts] = useState<any>({ expiring: [] });
@@ -83,7 +83,7 @@ export default function MainInventorySystem() {
   const [newCategoryRequiresSn, setNewCategoryRequiresSn] = useState(true);
   const [isSubmittingCat, setIsSubmittingCat] = useState(false);
 
-  // 🗓️ Bulk Tx: ตั้งใส่วันที่ปัจจุบันอัตโนมัติ
+  // Bulk Tx: ตั้งใส่วันที่ปัจจุบันอัตโนมัติ
   const getTodayString = () => new Date().toISOString().split('T')[0];
   const [isBulkTxModalOpen, setIsBulkTxModalOpen] = useState(false);
   const [bulkTxType, setBulkTxType] = useState('IN');
@@ -101,7 +101,7 @@ export default function MainInventorySystem() {
   const [openTxDropdownIndex, setOpenTxDropdownIndex] = useState<number | null>(null);
   const [txProductSearch, setTxProductSearch] = useState('');
 
-  // 🗓️ History Modal & Filters
+  // History Modal & Filters
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [transactionsHistory, setTransactionsHistory] = useState<Transaction[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -453,19 +453,16 @@ export default function MainInventorySystem() {
     return matchesCategoryFilter && (matchName || matchModel || matchCatName);
   });
 
-  // 🗓️ Filter รายการประวัติแบบยืดหยุ่นตามช่วงวันที่, ประเภท, และคำค้นหา
+  // Filter รายการประวัติแบบยืดหยุ่นตามช่วงวันที่, ประเภท, และคำค้นหา
   const filteredHistory = transactionsHistory.filter((tx: any) => {
-    // 1. Filter ตามประเภท (IN/OUT/ALL)
     if (historyTypeFilter !== 'ALL' && tx.transactionType !== historyTypeFilter) return false;
 
-    // 2. Filter ตามช่วงวันที่ (Start Date & End Date)
     if (tx.transactionDate) {
       const txDateStr = new Date(tx.transactionDate).toISOString().split('T')[0];
       if (historyStartDate && txDateStr < historyStartDate) return false;
       if (historyEndDate && txDateStr > historyEndDate) return false;
     }
 
-    // 3. Filter ตามคำค้นหา (ชื่อสินค้า, โมเดล, เลขอ้างอิง)
     const q = historySearchQuery.toLowerCase().trim();
     if (q) {
       const pName = (tx.product?.productName || '').toLowerCase();
@@ -1347,7 +1344,7 @@ export default function MainInventorySystem() {
         </div>
       )}
 
-      {/* 📋 Modal ประวัติรับเข้า - เบิกออก (พร้อมระบบ Sort & Filter ช่วงวันที่) */}
+      {/* Modal ประวัติรับเข้า - เบิกออก (พร้อมระบบ Sort & Filter ช่วงวันที่) */}
       {isHistoryModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -1358,10 +1355,8 @@ export default function MainInventorySystem() {
               <button onClick={() => setIsHistoryModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
             </div>
 
-            {/* 🔍 คอนโทรลบาร์: กรองตามช่วงวันที่, ประเภท (รับ/เบิก), และคำค้นหา */}
             <div className="p-4 bg-slate-950/80 border-b border-slate-800 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 text-xs">
               <div className="flex flex-wrap items-center gap-3">
-                {/* ปุ่มลัดเลือกประเภท */}
                 <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
                   <button 
                     onClick={() => setHistoryTypeFilter('ALL')} 
@@ -1383,7 +1378,6 @@ export default function MainInventorySystem() {
                   </button>
                 </div>
 
-                {/* ตัวเลือกช่วงวันที่ */}
                 <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5">
                   <Calendar size={14} className="text-slate-400" />
                   <span className="text-slate-400">เริ่ม:</span>
@@ -1414,7 +1408,6 @@ export default function MainInventorySystem() {
                 </div>
               </div>
 
-              {/* ช่องค้นหาสินค้า / อ้างอิง */}
               <div className="relative w-full lg:w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                 <input
@@ -1515,7 +1508,7 @@ export default function MainInventorySystem() {
         </div>
       )}
 
-      {/* 📦 Modal จัดการสต็อกสินค้า (พร้อมช่องระบุวันที่ทำรายการ) */}
+      {/* Modal จัดการสต็อกสินค้า (พร้อมช่องระบุวันที่ทำรายการ) */}
       {isBulkTxModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setOpenTxDropdownIndex(null)}>
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
@@ -1530,7 +1523,6 @@ export default function MainInventorySystem() {
                   <div><label className="block mb-1.5 text-sm text-slate-400">{bulkTxType === 'IN' ? 'เลขที่บิลรับเข้า (จะถูกใช้เป็น Lot No.)' : 'เลขที่อ้างอิงใบเบิก'}</label><input type="text" placeholder={bulkTxType === 'IN' ? 'เช่น PO-2026-001' : 'เช่น ใบเบิก-001'} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxRef} onChange={(e) => setBulkTxRef(e.target.value)} /></div>
                 </div>
 
-                {/* 📅 ช่องวันที่ทำรายการ (Default วันที่ปัจจุบัน) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block mb-1.5 text-sm text-emerald-400 font-medium">วันที่ทำรายการ *</label>
