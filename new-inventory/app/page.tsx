@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Calendar } from 'lucide-react';
-import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import PrintQrModal from '@/components/PrintQrModal';
 
 interface Category { 
@@ -82,7 +82,6 @@ export default function MainInventorySystem() {
   const [newCategoryRequiresSn, setNewCategoryRequiresSn] = useState(true);
   const [isSubmittingCat, setIsSubmittingCat] = useState(false);
 
-  // แก้ไขการเรียกใช้งานวันที่ให้ปลอดภัยต่อการ Build (SSR Safe)
   const getTodayString = () => new Date().toISOString().split('T')[0];
   const [isBulkTxModalOpen, setIsBulkTxModalOpen] = useState(false);
   const [bulkTxType, setBulkTxType] = useState('IN');
@@ -558,6 +557,33 @@ export default function MainInventorySystem() {
     .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 5);
 
+  // คำนวณข้อมูลกราฟ Stock Movement Trend แยกตามเดือน (YYYY-MM)
+  const monthlyTrendMap: { [key: string]: { monthKey: string; monthLabel: string; inQty: number; outQty: number } } = {};
+  const monthNamesThai = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+  transactionsHistory.forEach(tx => {
+    if (!tx.transactionDate) return;
+    const d = new Date(tx.transactionDate);
+    const yearStr = d.getFullYear();
+    const monthIdx = d.getMonth();
+    const monthKey = `${yearStr}-${String(monthIdx + 1).padStart(2, '0')}`;
+    const monthLabel = `${monthNamesThai[monthIdx]} ${yearStr + 543 - 2500}`;
+
+    if (!monthlyTrendMap[monthKey]) {
+      monthlyTrendMap[monthKey] = { monthKey, monthLabel, inQty: 0, outQty: 0 };
+    }
+
+    if (tx.transactionType === 'IN') {
+      monthlyTrendMap[monthKey].inQty += Number(tx.quantity || 0);
+    } else if (tx.transactionType === 'OUT') {
+      monthlyTrendMap[monthKey].outQty += Number(tx.quantity || 0);
+    }
+  });
+
+  const stockMovementTrendData = Object.values(monthlyTrendMap)
+    .sort((a, b) => a.monthKey.localeCompare(b.monthKey))
+    .slice(-6); // ดึงย้อนหลังสูงสุด 6 เดือนล่าสุด
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'In_Stock': return <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1 w-fit"><CheckCircle2 size={12}/> พร้อมใช้งาน</span>;
@@ -1018,7 +1044,8 @@ export default function MainInventorySystem() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* 1. กราฟวงกลม สัดส่วนสถานะเครื่องจักร */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
                 <h3 className="font-bold text-base text-white flex items-center gap-2"><PieChartIcon className="text-indigo-400" size={18} /> สัดส่วนสถานะเครื่องจักร</h3>
                 {machineStatusChartData.length > 0 ? (
@@ -1036,6 +1063,41 @@ export default function MainInventorySystem() {
                 ) : (<div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีข้อมูลสถานะเครื่องจักร</div>)}
               </div>
 
+              {/* 2. [ใหม่!] กราฟไทม์ไลน์การรับ-เบิกสต็อก (Stock Movement Trend) */}
+              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+                <h3 className="font-bold text-base text-white flex items-center gap-2">
+                  <TrendingUp className="text-emerald-400" size={18} /> แนวโน้มการรับเข้า VS เบิกออก รายเดือน
+                </h3>
+                {stockMovementTrendData.length > 0 ? (
+                  <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={stockMovementTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="colorIn" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#10B981" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                          </linearGradient>
+                          <linearGradient id="colorOut" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#F43F5E" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="#F43F5E" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="monthLabel" stroke="#94a3b8" fontSize={11} />
+                        <YAxis stroke="#64748b" fontSize={11} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }} />
+                        <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: '12px', color: '#94a3b8' }} />
+                        <Area type="monotone" dataKey="inQty" name="รับเข้า (IN)" stroke="#10B981" fillOpacity={1} fill="url(#colorIn)" />
+                        <Area type="monotone" dataKey="outQty" name="เบิกออก (OUT)" stroke="#F43F5E" fillOpacity={1} fill="url(#colorOut)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีประวัติการรับเข้า-เบิกออก</div>
+                )}
+              </div>
+
+              {/* 3. Top 5 หมวดหมู่ที่มีมูลค่าสต็อกสูงสุด */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
                 <h3 className="font-bold text-base text-white flex items-center gap-2"><BarChart3 className="text-emerald-400" size={18} /> Top 5 หมวดหมู่ที่มีมูลค่าสต็อกสูงสุด</h3>
                 {topCategoryChartData.length > 0 ? (
@@ -1053,6 +1115,7 @@ export default function MainInventorySystem() {
                 ) : (<div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีข้อมูลมูลค่าหมวดหมู่</div>)}
               </div>
 
+              {/* 4. Top 5 สินค้าที่ถูกเบิกใช้งานเยอะที่สุด */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
                 <h3 className="font-bold text-base text-white flex items-center gap-2"><TrendingDown className="text-rose-400" size={18} /> Top 5 สินค้าที่ถูกเบิกใช้งานเยอะที่สุด</h3>
                 {topOutboundProductsData.length > 0 ? (
