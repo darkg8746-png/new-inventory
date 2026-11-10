@@ -113,16 +113,20 @@ export default function MainInventorySystem() {
   const [historySearchQuery, setHistorySearchQuery] = useState('');
   const [historySortDirection, setHistorySortDirection] = useState<'desc' | 'asc'>('desc');
   
-  const [historyFilterMode, setHistoryFilterMode] = useState<'ALL' | 'DAY' | 'MONTH' | 'YEAR'>('ALL');
+  const [historyFilterMode, setHistoryFilterMode] = useState<'ALL' | 'DAY' | 'MONTH' | 'YEAR' | 'CUSTOM'>('ALL');
   const [historySelectedDate, setHistorySelectedDate] = useState('');
   const [historySelectedMonth, setHistorySelectedMonth] = useState('');
   const [historySelectedYear, setHistorySelectedYear] = useState('');
+  const [historyStartDate, setHistoryStartDate] = useState('');
+  const [historyEndDate, setHistoryEndDate] = useState('');
 
   useEffect(() => {
     const today = getTodayString();
     setHistorySelectedDate(today);
     setHistorySelectedMonth(String(new Date().getMonth() + 1));
     setHistorySelectedYear(String(new Date().getFullYear()));
+    setHistoryStartDate(today);
+    setHistoryEndDate(today);
   }, []);
 
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -482,6 +486,9 @@ export default function MainInventorySystem() {
         if (historySelectedMonth && txMonth !== historySelectedMonth) return false;
       } else if (historyFilterMode === 'YEAR') {
         if (historySelectedYear && txYear !== historySelectedYear) return false;
+      } else if (historyFilterMode === 'CUSTOM') {
+        if (historyStartDate && txDateStr < historyStartDate) return false;
+        if (historyEndDate && txDateStr > historyEndDate) return false;
       }
     }
 
@@ -1381,7 +1388,7 @@ export default function MainInventorySystem() {
               <button onClick={() => setIsHistoryModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
             </div>
 
-            {/* แถบฟิลเตอร์ประเภท และ ช่วงเวลา (รายวัน/รายเดือน/รายปี) */}
+            {/* แถบฟิลเตอร์ประเภท และ ช่วงเวลา (รายวัน/รายเดือน/รายปี/กำหนดเอง) */}
             <div className="p-4 bg-slate-950/90 border-b border-slate-800 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 text-xs shrink-0">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
@@ -1418,6 +1425,7 @@ export default function MainInventorySystem() {
                       <option value="DAY">รายวัน (Daily)</option>
                       <option value="MONTH">รายเดือน (Monthly)</option>
                       <option value="YEAR">รายปี (Yearly)</option>
+                      <option value="CUSTOM">กำหนดเอง (Custom Range)</option>
                     </select>
                   </div>
 
@@ -1472,6 +1480,29 @@ export default function MainInventorySystem() {
                       </select>
                     </div>
                   )}
+
+                  {historyFilterMode === 'CUSTOM' && (
+                    <div className="flex items-center gap-2">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-slate-400">จากวันที่</span>
+                        <input 
+                          type="date" 
+                          className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 font-sans cursor-pointer text-xs"
+                          value={historyStartDate}
+                          onChange={(e) => setHistoryStartDate(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-slate-400">ถึงวันที่</span>
+                        <input 
+                          type="date" 
+                          className="bg-slate-950 text-white font-semibold rounded-lg px-2 py-1 outline-none border border-slate-700 font-sans cursor-pointer text-xs"
+                          value={historyEndDate}
+                          onChange={(e) => setHistoryEndDate(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1518,7 +1549,7 @@ export default function MainInventorySystem() {
                   {loadingHistory ? (
                     <tr><td colSpan={6} className="p-16 text-center text-slate-400">กำลังโหลด...</td></tr>
                   ) : filteredHistory.length === 0 ? (
-                    <tr><td colSpan={6} className="p-16 text-center text-slate-400">ไม่พบข้อมูลประวัติที่ค้นหา</td></tr>
+                    <tr><td colSpan={6} className="p-16 text-center text-slate-400">ไม่พบข้อมูลประวัติที่ค้นหาในช่วงเวลานี้</td></tr>
                   ) : (
                     filteredHistory.map((tx: any) => (
                       <tr key={tx.transactionId} className="hover:bg-slate-800/40 transition">
