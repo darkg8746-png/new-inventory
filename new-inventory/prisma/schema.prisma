@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ตารางที่ 1: หมวดหมู่สินค้า
+model ProductCategories {
+  id           Int               @id @default(autoincrement()) @map("category_id")
+  categoryName String            @map("category_name")
+  
+  // ความสัมพันธ์: 1 หมวดหมู่ มีสินค้าได้หลายชิ้น
+  products     ProductsCatalog[] 
+
+  @@map("product_categories")
+}
+
+// ตารางที่ 2: แคตตาล็อกสินค้า (ตารางหลัก)
+model ProductsCatalog {
+  productId        Int       @id @default(autoincrement()) @map("product_id")
+  productName      String?   @map("product_name")
+  categoryId       Int?      @map("category_id")
+  productModelCode String?   @map("product_model_code")
+  unitCost         Float?    @map("product_unit_cost")
+  salePrice        Float?    @map("product_sale_price")
+  rentPrice        Float?    @map("product_rent_price")
+  isPreorder       Boolean?  @default(false) @map("is_preorder")
+  stockQty         Int?      @default(0) @map("product_stock_qty")
+  unitName         String?   @map("unit_name")
+
+  category         ProductCategories?      @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  transactions     InventoryTransactions[]
+  machines         MachinesAssets[]
+  
+  // 🌟 เพิ่ม Relation โยงไปหาตาราง Lot (1 สินค้า มีได้หลายล็อต) 🌟
+  lots             ProductLots[]
+
+  @@map("products_catalog")
+}
+
+// ตารางที่ 3: ประวัติการทำรายการเข้า-ออกของสต็อก
+model InventoryTransactions {
+  transactionId       Int       @id @default(autoincrement()) @map("transaction_id")
+  productId           Int       @map("product_id")
+  employeeId          Int?      @map("employee_id")
+  transactionType     String    @map("transaction_type") @db.VarChar(20)
+  quantity            Int
+  transactionDate     DateTime  @default(now()) @map("transaction_date")
+  transactionUnitCost Float?    @map("transaction_unit_cost")
+  referenceNo         String?   @map("reference_no") @db.VarChar(50)
+  supplierId          Int?      @map("supplier_id")
+  remark              String?
+
+  product             ProductsCatalog @relation(fields: [productId], references: [productId], onDelete: Restrict, onUpdate: Cascade)
+
+  // 🌟 เพิ่ม Relation โยงไปหาไส้ในของบิลเบิก (1 บิลเบิก อาจตัดสต็อกหลายล็อต) 🌟
+  lotDetails          TransactionLotDetails[]
+
+  // หมายเหตุ: ปิดคอมเมนต์ไว้ก่อนจนกว่าจะสร้างตาราง Employees และ Suppliers
+  // employee         Employees?      @relation(fields: [employeeId], references: [employeeId])
+  // supplier         Suppliers?      @relation(fields: [supplierId], references: [supplierId])
+
+  @@map("inventory_transactions")
+}
+
+// ตารางที่ 4: ทะเบียนเครื่องจักรรายตัว (Machines Assets)
+model MachinesAssets {
+  assetId                 Int       @id @default(autoincrement()) @map("asset_id")
+  productId               Int       @map("product_id")
+  customerId              Int?      @map("customer_id")
+  assetSerialNumber       String    @unique @map("asset_serial_number") @db.VarChar(100)
+  assetQrCode             String?   @unique @map("asset_qr_code") @db.VarChar(50)
+  assetStatus             String?   @default("In_Stock") @map("asset_status") @db.VarChar(30)
+  assetInstallDate        DateTime? @map("asset_install_date") @db.Date
+  assetPurchaseCost       Float?    @map("asset_purchase_cost") 
+  assetPurchaseDate       DateTime? @map("asset_purchase_date") @db.Date
+  assetWarrantyExpireDate DateTime? @map("asset_warranty_expire_date") @db.Date
+  isInternalSn            Boolean?  @default(false) @map("is_internal_sn")
+  supplierId              Int?      @map("supplier_id")
+
+  product                 ProductsCatalog @relation(fields: [productId], references: [productId], onDelete: Restrict, onUpdate: Cascade)
+  
+  // หมายเหตุ: ปิดคอมเมนต์ไว้ก่อนจนกว่าจะสร้างตาราง Customers และ Suppliers
+  // customer             Customers?      @relation(fields: [customerId], references: [customerId])
+  // supplier             Suppliers?      @relation(fields: [supplierId], references: [supplierId])
+
+  @@map("machines_assets")
+}
+
+// ==============================================================
+// 📦 5. ตารางใหม่: ProductLots (เก็บสต็อกแยกตามรอบการสั่งซื้อ)
+// ==============================================================
+model ProductLots {
+  lotId          Int       @id @default(autoincrement()) @map("lot_id")
+  productId      Int       @map("product_id")
+  lotNumber      String    @map("lot_number") @db.VarChar(50) // ชื่อล็อต หรือเลข PO
+  unitCost       Float     @map("unit_cost")                  // ต้นทุนรอบนี้
+  originalQty    Int       @map("original_qty")               // จำนวนตอนรับเข้า
+  remainingQty   Int       @map("remaining_qty")              // จำนวนคงเหลือจริงในล็อตนี้
+  receiveDate    DateTime  @default(now()) @map("receive_date") // วันที่รับเข้า (ใช้วิ่งคิว FIFO)
+  expireDate     DateTime? @map("expire_date") @db.Date       // วันหมดอายุ
+  lotStatus      String    @default("Active") @map("lot_status") @db.VarChar(20) // Active, Depleted
+
+  product        ProductsCatalog          @relation(fields: [productId], references: [productId], onDelete: Restrict, onUpdate: Cascade)
+  usedDetails    TransactionLotDetails[]
+
+  @@map("product_lots")
+}
+
+// ==============================================================
+// 📝 6. ตารางใหม่: TransactionLotDetails (ไส้ในของประวัติเบิก - บอกว่าหยิบจากล็อตไหนไปบ้าง)
+// ==============================================================
+model TransactionLotDetails {
+  detailId       Int       @id @default(autoincrement()) @map("detail_id")
+  transactionId  Int       @map("transaction_id")
+  lotId          Int       @map("lot_id")
+  quantityUsed   Int       @map("quantity_used")
+  costApplied    Float     @map("cost_applied") // ต้นทุน ณ ตอนที่โดนเบิก
+
+  transaction    InventoryTransactions @relation(fields: [transactionId], references: [transactionId], onDelete: Cascade)
+  lot            ProductLots           @relation(fields: [lotId], references: [lotId], onDelete: Restrict)
+
+  @@map("transaction_lot_details")
+}
