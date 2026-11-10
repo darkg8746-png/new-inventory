@@ -58,6 +58,9 @@ export default function MainInventorySystem() {
   const [loadingQuick, setLoadingQuick] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
+  // State สำหรับช่องค้นหาในแท็บคลังสินค้าหลัก
+  const [inventorySearch, setInventorySearch] = useState('');
+
   const [alerts, setAlerts] = useState<any>({ expiring: [] });
   const [isLowStockModalOpen, setIsLowStockModalOpen] = useState(false);
   const [lowStockModalType, setLowStockModalType] = useState<'LOW' | 'OUT'>('LOW');
@@ -87,7 +90,6 @@ export default function MainInventorySystem() {
   const [bulkTxEmployee, setBulkTxEmployee] = useState(''); 
   const [bulkTxSupplier, setBulkTxSupplier] = useState('');
   
-  // ✅ ระบุ Type ของ Array ชัดเจนเพื่อแก้ TS2488
   const [bulkTxItems, setBulkTxItems] = useState<BulkTxItem[]>([
     { productId: '', quantity: 1, unitCost: '', expireDate: '' }
   ]);
@@ -428,7 +430,22 @@ export default function MainInventorySystem() {
     }
   });
 
-  const displayProducts = selectedFilterCategories.length === 0 ? currentListToDisplay : currentListToDisplay.filter(p => selectedFilterCategories.includes(p.categoryId));
+  // ✅ ระบบ Filter คำค้นหา: ค้นหาทั้งชื่อสินค้า, รุ่นโมเดล และหมวดหมู่
+  const displayProducts = currentListToDisplay.filter(p => {
+    // 1. กรองตามหมวดหมู่ที่เลือกติ๊กเช็กบ็อกซ์
+    const matchesCategoryFilter = selectedFilterCategories.length === 0 || selectedFilterCategories.includes(p.categoryId);
+    
+    // 2. กรองตามคำค้นหาในช่อง Search (ชื่อ, โมเดล, หมวดหมู่)
+    const query = inventorySearch.toLowerCase().trim();
+    if (!query) return matchesCategoryFilter;
+
+    const category = safeCategories.find(c => c.id === p.categoryId);
+    const matchName = (p.productName || '').toLowerCase().includes(query);
+    const matchModel = (p.productModelCode || '').toLowerCase().includes(query);
+    const matchCatName = (category?.categoryName || '').toLowerCase().includes(query);
+
+    return matchesCategoryFilter && (matchName || matchModel || matchCatName);
+  });
 
   const outOfStockItems = sortedProducts.filter(item => (item.stockQty ?? 0) === 0);
   const lowStockItems = sortedProducts.filter(item => (item.stockQty ?? 0) > 0 && (item.stockQty ?? 0) <= 5);
@@ -749,28 +766,51 @@ export default function MainInventorySystem() {
                   {inventorySubTab === 'consumables' ? 'รายการอะไหล่ สกรู ข้อต่อ ใบมีด (คุมด้วย Lot FIFO)' : 'รายการเครื่องจักรในแคตตาล็อก (อิง S/N อัตโนมัติ)'}
                 </h3>
                 
-                <div className="relative w-full sm:w-auto" onClick={(e) => e.stopPropagation()}>
-                  <button onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)} className="flex items-center justify-between gap-2 w-full sm:w-64 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none hover:border-amber-500 transition">
-                    <div className="flex items-center gap-2"><Filter size={16} className={selectedFilterCategories.length > 0 ? "text-amber-500" : "text-slate-400"} /><span>{selectedFilterCategories.length === 0 ? 'แสดงทุกหมวดหมู่' : `กรองอยู่ (${selectedFilterCategories.length} หมวดหมู่)`}</span></div><ChevronDown size={16} className="text-slate-400" />
-                  </button>
-                  {isFilterDropdownOpen && (
-                    <div className="absolute z-10 w-full mt-2 bg-slate-900 border border-slate-700 rounded-xl shadow-xl overflow-hidden right-0">
-                      <div className="p-2 border-b border-slate-800 bg-slate-950 flex flex-col gap-2 sticky top-0 z-20">
-                        <div className="flex items-center gap-2">
-                          <div className="relative flex-1">
-                            <input type="text" autoFocus placeholder="🔍 ค้นหาหมวดหมู่..." className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-3 pr-8 py-2 text-sm text-white outline-none focus:border-amber-500 transition" value={filterCategorySearch} onChange={(e) => setFilterCategorySearch(e.target.value)}/>
-                            {filterCategorySearch && (<button onClick={() => setFilterCategorySearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"><X size={14} /></button>)}
+                <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+                  {/* 🔍 ช่องค้นหาสินค้า: ค้นหาทั้งชื่อ, โมเดล, และประเภทหมวดหมู่ */}
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input 
+                      type="text" 
+                      placeholder="ค้นหาชื่อ, โมเดล, ประเภท..." 
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-8 py-2.5 text-sm text-white outline-none focus:border-amber-500 transition"
+                      value={inventorySearch}
+                      onChange={(e) => setInventorySearch(e.target.value)}
+                    />
+                    {inventorySearch && (
+                      <button 
+                        onClick={() => setInventorySearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* ตัวกรองหมวดหมู่ */}
+                  <div className="relative w-full sm:w-auto" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)} className="flex items-center justify-between gap-2 w-full sm:w-64 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none hover:border-amber-500 transition">
+                      <div className="flex items-center gap-2"><Filter size={16} className={selectedFilterCategories.length > 0 ? "text-amber-500" : "text-slate-400"} /><span>{selectedFilterCategories.length === 0 ? 'แสดงทุกหมวดหมู่' : `กรองอยู่ (${selectedFilterCategories.length} หมวดหมู่)`}</span></div><ChevronDown size={16} className="text-slate-400" />
+                    </button>
+                    {isFilterDropdownOpen && (
+                      <div className="absolute z-10 w-full mt-2 bg-slate-900 border border-slate-700 rounded-xl shadow-xl overflow-hidden right-0">
+                        <div className="p-2 border-b border-slate-800 bg-slate-950 flex flex-col gap-2 sticky top-0 z-20">
+                          <div className="flex items-center gap-2">
+                            <div className="relative flex-1">
+                              <input type="text" autoFocus placeholder="🔍 ค้นหาหมวดหมู่..." className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-3 pr-8 py-2 text-sm text-white outline-none focus:border-amber-500 transition" value={filterCategorySearch} onChange={(e) => setFilterCategorySearch(e.target.value)}/>
+                              {filterCategorySearch && (<button onClick={() => setFilterCategorySearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"><X size={14} /></button>)}
+                            </div>
+                            {selectedFilterCategories.length > 0 && (<button onClick={() => setSelectedFilterCategories([])} className="px-3 py-2 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg text-xs font-semibold transition whitespace-nowrap flex items-center gap-1"><Trash2 size={12} /> ล้างที่เลือก</button>)}
                           </div>
-                          {selectedFilterCategories.length > 0 && (<button onClick={() => setSelectedFilterCategories([])} className="px-3 py-2 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg text-xs font-semibold transition whitespace-nowrap flex items-center gap-1"><Trash2 size={12} /> ล้างที่เลือก</button>)}
                         </div>
+                        <ul className="max-h-60 overflow-y-auto p-2 space-y-1">
+                          {displayedFilterCategories.map(cat => (
+                            <li key={cat.id}><label className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-800 cursor-pointer text-sm text-slate-300 transition-colors select-none"><input type="checkbox" className="accent-amber-500 w-4 h-4 cursor-pointer" checked={selectedFilterCategories.includes(cat.id)} onChange={() => toggleFilterCategory(cat.id)}/>{cat.categoryName}</label></li>
+                          ))}
+                        </ul>
                       </div>
-                      <ul className="max-h-60 overflow-y-auto p-2 space-y-1">
-                        {displayedFilterCategories.map(cat => (
-                          <li key={cat.id}><label className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-800 cursor-pointer text-sm text-slate-300 transition-colors select-none"><input type="checkbox" className="accent-amber-500 w-4 h-4 cursor-pointer" checked={selectedFilterCategories.includes(cat.id)} onChange={() => toggleFilterCategory(cat.id)}/>{cat.categoryName}</label></li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -778,7 +818,7 @@ export default function MainInventorySystem() {
                 <table className="w-full text-left border-collapse">
                   <thead><tr className="bg-slate-950/60 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-800"><th className="p-4 font-semibold">รหัส/ชื่อสินค้า</th><th className="p-4 font-semibold">หมวดหมู่</th><th className="p-4 font-semibold">สถานะ</th><th className="p-4 font-semibold text-right">ราคาขาย (฿)</th><th className="p-4 font-semibold text-center">คงเหลือ (Summary)</th><th className="p-4 font-semibold text-center">จัดการ</th></tr></thead>
                   <tbody className="divide-y divide-slate-800/50 text-sm">
-                    {loading ? (<tr><td colSpan={6} className="p-16 text-center text-slate-400">กำลังโหลด...</td></tr>) : displayProducts.length === 0 ? (<tr><td colSpan={6} className="p-16 text-center text-slate-400">ไม่พบข้อมูลสินค้าในหมวดหมู่นี้</td></tr>) : (
+                    {loading ? (<tr><td colSpan={6} className="p-16 text-center text-slate-400">กำลังโหลด...</td></tr>) : displayProducts.length === 0 ? (<tr><td colSpan={6} className="p-16 text-center text-slate-400">ไม่พบข้อมูลสินค้าตรงตามเงื่อนไขที่ค้นหา</td></tr>) : (
                       displayProducts.map((item) => {
                         const category = safeCategories.find(c => c.id === item.categoryId);
                         const currentStock = item.stockQty ?? 0;
