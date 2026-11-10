@@ -37,6 +37,13 @@ interface Machine {
   supplierId: number | null; customerId: number | null; product?: Product; customer?: Customer;
 }
 
+interface BulkTxItem {
+  productId: number | '';
+  quantity: number;
+  unitCost: number | '';
+  expireDate: string;
+}
+
 export default function MainInventorySystem() {
   const [activeTab, setActiveTab] = useState<'inventory' | 'machines' | 'analytics' | 'quick_check'>('quick_check');
   const [inventorySubTab, setInventorySubTab] = useState<'consumables' | 'machines_catalog'>('consumables');
@@ -49,7 +56,7 @@ export default function MainInventorySystem() {
   const [quickSearch, setQuickSearch] = useState('');
   const [quickResults, setQuickResults] = useState<any[]>([]);
   const [loadingQuick, setLoadingQuick] = useState(false);
-  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false); // 🌟 State สำหรับเปิด/ปิด Modal พิมพ์ป้าย QR Code
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
   const [alerts, setAlerts] = useState<any>({ expiring: [] });
   const [isLowStockModalOpen, setIsLowStockModalOpen] = useState(false);
@@ -80,7 +87,10 @@ export default function MainInventorySystem() {
   const [bulkTxEmployee, setBulkTxEmployee] = useState(''); 
   const [bulkTxSupplier, setBulkTxSupplier] = useState('');
   
-  const [bulkTxItems, setBulkTxItems] = useState<{productId: number | '', quantity: number, unitCost: number | '', expireDate: string}>([{ productId: '', quantity: 1, unitCost: '', expireDate: '' }]);
+  // ✅ ระบุ Type ของ Array ชัดเจนเพื่อแก้ TS2488
+  const [bulkTxItems, setBulkTxItems] = useState<BulkTxItem[]>([
+    { productId: '', quantity: 1, unitCost: '', expireDate: '' }
+  ]);
   
   const [isSubmittingTx, setIsSubmittingTx] = useState(false);
   const [openTxDropdownIndex, setOpenTxDropdownIndex] = useState<number | null>(null);
@@ -121,7 +131,6 @@ export default function MainInventorySystem() {
     }
   }, [activeTab]);
 
-  // 🌟 รองรับการสแกน QR Code จากกล้องมือถือผ่าน URL Parameters อัตโนมัติ (เช่น ?action=withdraw&productId=101)
   useEffect(() => {
     if (products.length === 0) return;
     const params = new URLSearchParams(window.location.search);
@@ -285,7 +294,7 @@ export default function MainInventorySystem() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ 
           transactionType: bulkTxType, referenceNo: bulkTxRef, remark: bulkTxRemark, 
-          employeeId: bulkTxEmployee, supplierId: bulkTxType === 'IN' ? bulkTxSupplier : null, 
+          employeeId: bulkTxEmployee ? Number(bulkTxEmployee) : null, supplierId: bulkTxType === 'IN' && bulkTxSupplier ? Number(bulkTxSupplier) : null, 
           items: itemsToSubmit
         }) 
       });
@@ -541,7 +550,6 @@ export default function MainInventorySystem() {
                 <h2 className="text-emerald-400 font-bold text-lg flex items-center gap-2">
                   <Zap size={22} /> เช็กสต็อกแยกตามประเภทและโมเดลหน้างาน
                 </h2>
-                {/* 🌟 ปุ่มกดเปิด Modal พิมพ์ป้าย QR Code ชั้นวาง */}
                 <button 
                   onClick={() => setIsPrintModalOpen(true)}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg"
@@ -994,12 +1002,11 @@ export default function MainInventorySystem() {
 
       </div>
 
-      {/* 🌟 เรียกใช้งานคอมโพเนนต์ PrintQrModal ไว้ท้ายสุด */}
       <PrintQrModal 
         isOpen={isPrintModalOpen}
         onClose={() => setIsPrintModalOpen(false)}
         products={products}
-        categories={categories} // 👈 เพิ่มบรรทัดนี้เข้ามา
+        categories={categories}
       />
 
       {/* MODALS */}
