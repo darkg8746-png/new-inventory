@@ -1361,16 +1361,18 @@ export default function MainInventorySystem() {
       {/* Modal ประวัติรับเข้า - เบิกออก (พร้อมระบบ Sort วันเวลา & Filter ช่วงเวลาแบบยืดหยุ่น) */}
       {isHistoryModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-800/30">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col h-[85vh]">
+            
+            {/* Header */}
+            <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-800/30 shrink-0">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <ClipboardList className="text-blue-400" size={20} /> ประวัติการรับเข้า - เบิกออกสต็อก
               </h2>
               <button onClick={() => setIsHistoryModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
             </div>
 
-            {/* แถบฟิลเตอร์ประเภท และ ช่วงเวลา (รายวัน/รายเดือน/รายปี) */}
-            <div className="p-4 bg-slate-950/90 border-b border-slate-800 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 text-xs">
+            {/* แถบฟิลเตอร์ประเภท และ ช่วงเวลา (ล็อกให้อยู่ข้างบนเสมอ ไม่เลื่อนหนี) */}
+            <div className="p-4 bg-slate-950/90 border-b border-slate-800 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 text-xs shrink-0">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
                   <button 
@@ -1480,7 +1482,8 @@ export default function MainInventorySystem() {
               </div>
             </div>
 
-            <div className="p-0 overflow-y-auto flex-1">
+            {/* ตารางข้อมูล (ให้ scroll เฉพาะส่วนนี้) */}
+            <div className="flex-1 overflow-y-auto">
               <table className="w-full text-left border-collapse">
                 <thead className="sticky top-0 bg-slate-900 z-10">
                   <tr className="bg-slate-950/90 text-slate-400 text-xs uppercase border-b border-slate-800">
@@ -1522,13 +1525,16 @@ export default function MainInventorySystem() {
                 </tbody>
               </table>
             </div>
-            <div className="p-4 border-t border-slate-800 flex justify-between items-center bg-slate-950/40">
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-800 flex justify-between items-center bg-slate-950/40 shrink-0">
               <span className="text-xs text-slate-400">แสดงผล <strong className="text-blue-400 font-mono">{filteredHistory.length}</strong> จากทั้งหมด {transactionsHistory.length} รายการ</span>
               <button onClick={() => setIsHistoryModalOpen(false)} className="px-5 py-2 bg-slate-800 rounded-xl text-slate-300 text-xs font-semibold hover:bg-slate-700">ปิดหน้าต่าง</button>
             </div>
+
           </div>
         </div>
-      )}
+      )} 
       
       {selectedHistoryItem && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
