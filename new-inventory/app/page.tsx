@@ -1440,12 +1440,12 @@ export default function MainInventorySystem() {
                 <thead className="sticky top-0 bg-slate-900 z-10">
                   <tr className="bg-slate-950/90 text-slate-400 text-xs uppercase border-b border-slate-800">
                     <th 
-                      className="p-4 font-semibold cursor-pointer hover:text-white transition select-none"
+                      className="p-4 font-semibold cursor-pointer hover:text-white transition select-none w-48"
                       onClick={() => setHistorySortDirection(prev => prev === 'desc' ? 'asc' : 'desc')}
                     >
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center justify-between gap-2">
                         <span>วันเวลา</span>
-                        <span className="text-amber-400 font-bold">
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-amber-400 font-bold text-[11px] shrink-0 border border-slate-700">
                           {historySortDirection === 'desc' ? '🔽 ล่าสุด' : '🔼 เก่าสุด'}
                         </span>
                       </div>
