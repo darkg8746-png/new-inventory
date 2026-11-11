@@ -95,20 +95,29 @@ export default function ConsumableOrderModal({
 
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
-        <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-800/30">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <ShoppingCart className="text-blue-400" size={20} /> เบิกน้ำยา / เคมีภัณฑ์
+      <div className="bg-[#0b1329] border border-slate-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col p-6 space-y-6">
+        {/* Header */}
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold text-white flex items-center gap-2.5">
+            <ShoppingCart className="text-blue-500" size={24} /> เบิกน้ำยา / เคมีภัณฑ์
           </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
+          <button 
+            onClick={onClose} 
+            className="text-slate-400 hover:text-white transition p-1 rounded-lg"
+          >
             <X size={20} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 text-slate-300">
-          <div>
-            <label className="block mb-1 text-sm text-slate-400">เลือกสินค้า/น้ำยา/เคมีภัณฑ์ *</label>
+
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="space-y-4 text-slate-200">
+          {/* Product Select */}
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-slate-300">
+              เลือกสินค้า/น้ำยา/เคมีภัณฑ์ <span className="text-blue-400">*</span>
+            </label>
             <select
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-blue-500"
+              className="w-full bg-[#050b18] border border-slate-800/80 rounded-2xl px-4 py-3 text-white outline-none focus:border-blue-500 transition appearance-none cursor-pointer text-sm"
               value={selectedProductId}
               onChange={(e) => setSelectedProductId(e.target.value ? Number(e.target.value) : '')}
               required
@@ -122,22 +131,28 @@ export default function ConsumableOrderModal({
             </select>
           </div>
 
-          <div>
-            <label className="block mb-1 text-sm text-slate-400">จำนวนที่ต้องการเบิก *</label>
+          {/* Quantity */}
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-slate-300">
+              จำนวนที่ต้องการเบิก <span className="text-blue-400">*</span>
+            </label>
             <input
               type="number"
               min="1"
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-blue-500 font-bold"
+              className="w-full bg-[#050b18] border border-slate-800/80 rounded-2xl px-4 py-3 text-white outline-none focus:border-blue-500 font-bold transition text-sm"
               value={quantity}
               onChange={(e) => setQuantity(Number(e.target.value))}
               required
             />
           </div>
 
-          <div>
-            <label className="block mb-1 text-sm text-slate-400">ลูกค้าผู้เบิก / หน้างาน (ถ้ามี)</label>
+          {/* Customer Select */}
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-slate-300">
+              ลูกค้าผู้เบิก / หน้างาน (ถ้ามี)
+            </label>
             <select
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-blue-500"
+              className="w-full bg-[#050b18] border border-slate-800/80 rounded-2xl px-4 py-3 text-white outline-none focus:border-blue-500 transition appearance-none cursor-pointer text-sm"
               value={selectedCustomerId}
               onChange={(e) => setSelectedCustomerId(e.target.value ? Number(e.target.value) : '')}
             >
@@ -150,31 +165,35 @@ export default function ConsumableOrderModal({
             </select>
           </div>
 
-          <div>
-            <label className="block mb-1 text-sm text-slate-400">หมายเหตุ / รายละเอียดเพิ่มเติม</label>
+          {/* Remark */}
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-slate-300">
+              หมายเหตุ / รายละเอียดเพิ่มเติม
+            </label>
             <input
               type="text"
               placeholder="เช่น เติมน้ำยาล้างเครื่องประจำเดือน"
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-blue-500"
+              className="w-full bg-[#050b18] border border-slate-800/80 rounded-2xl px-4 py-3 text-white outline-none focus:border-blue-500 transition text-sm placeholder:text-slate-600"
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
             />
           </div>
 
-          <div className="pt-4 border-t border-slate-800 flex justify-end gap-3">
+          {/* Buttons */}
+          <div className="pt-4 flex justify-end items-center gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-semibold transition"
+              className="px-6 py-2.5 bg-[#1b253e] hover:bg-slate-800 text-slate-300 rounded-2xl text-sm font-medium transition"
             >
               ยกเลิก
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-lg shadow-blue-600/20"
+              className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-sm font-semibold transition flex items-center gap-2 shadow-lg shadow-blue-600/30"
             >
-              {isSubmitting ? 'กำลังบันทึก...' : <><CheckCircle2 size={16} /> ยืนยันการเบิก</>}
+              {isSubmitting ? 'กำลังบันทึก...' : <><CheckCircle2 size={18} /> ยืนยันการเบิก</>}
             </button>
           </div>
         </form>
