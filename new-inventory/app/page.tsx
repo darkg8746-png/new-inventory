@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Coins, Layers } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import PrintQrModal from '@/components/PrintQrModal';
+import ConsumableOrderModal from '@/components/ConsumableOrderModal';
 
 interface Category { 
   id: number; 
@@ -47,6 +48,8 @@ interface BulkTxItem {
 export default function MainInventorySystem() {
   const [activeTab, setActiveTab] = useState<'inventory' | 'machines' | 'analytics' | 'quick_check'>('quick_check');
   const [inventorySubTab, setInventorySubTab] = useState<'consumables' | 'machines_catalog'>('consumables');
+
+  const [isConsumableOrderModalOpen, setIsConsumableOrderModalOpen] = useState(false);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -557,7 +560,6 @@ export default function MainInventorySystem() {
     .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 5);
 
-  // คำนวณข้อมูล Stock Movement Trend รายเดือน (YYYY-MM)
   const monthlyTrendMap: { [key: string]: { monthKey: string; monthLabel: string; inQty: number; outQty: number } } = {};
   const monthNamesThai = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
@@ -584,9 +586,6 @@ export default function MainInventorySystem() {
     .sort((a, b) => a.monthKey.localeCompare(b.monthKey))
     .slice(-6);
 
-  // ----------------------------------------------------
-  // คำนวณยอดใช้งานและต้นทุนรวม แยกตามหมวดหมู่ (Category Usage & Expense)
-  // ----------------------------------------------------
   const categoryUsageMap: { [catName: string]: { categoryName: string; totalQty: number; totalCost: number } } = {};
   let globalTotalOutboundCost = 0;
 
@@ -642,6 +641,7 @@ export default function MainInventorySystem() {
         setIsCustomerDropdownOpen(false);
       }} 
     >
+      
       <div className="max-w-7xl mx-auto space-y-6">
         
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-900/60 p-5 rounded-2xl border border-slate-800/80 shadow-2xl">
@@ -1082,7 +1082,6 @@ export default function MainInventorySystem() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* 1. กราฟวงกลม สัดส่วนสถานะเครื่องจักร */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
                 <h3 className="font-bold text-base text-white flex items-center gap-2"><PieChartIcon className="text-indigo-400" size={18} /> สัดส่วนสถานะเครื่องจักร</h3>
                 {machineStatusChartData.length > 0 ? (
@@ -1100,7 +1099,6 @@ export default function MainInventorySystem() {
                 ) : (<div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีข้อมูลสถานะเครื่องจักร</div>)}
               </div>
 
-              {/* 2. กราฟไทม์ไลน์การรับ-เบิกสต็อก (Stock Movement Trend) */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
                 <h3 className="font-bold text-base text-white flex items-center gap-2">
                   <TrendingUp className="text-emerald-400" size={18} /> แนวโน้มการรับเข้า VS เบิกออก รายเดือน
@@ -1134,7 +1132,6 @@ export default function MainInventorySystem() {
                 )}
               </div>
 
-              {/* 3. Top 5 หมวดหมู่ที่มีมูลค่าสต็อกสูงสุด */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
                 <h3 className="font-bold text-base text-white flex items-center gap-2"><BarChart3 className="text-emerald-400" size={18} /> Top 5 หมวดหมู่ที่มีมูลค่าสต็อกสูงสุด</h3>
                 {topCategoryChartData.length > 0 ? (
@@ -1152,7 +1149,6 @@ export default function MainInventorySystem() {
                 ) : (<div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีข้อมูลมูลค่าหมวดหมู่</div>)}
               </div>
 
-              {/* 4. Top 5 สินค้าที่ถูกเบิกใช้งานเยอะที่สุด */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
                 <h3 className="font-bold text-base text-white flex items-center gap-2"><TrendingDown className="text-rose-400" size={18} /> Top 5 สินค้าที่ถูกเบิกใช้งานเยอะที่สุด</h3>
                 {topOutboundProductsData.length > 0 ? (
@@ -1171,7 +1167,6 @@ export default function MainInventorySystem() {
               </div>
             </div>
 
-            {/* 5. [ใหม่!] การ์ดสรุปยอดการใช้งานและต้นทุนรวม แยกตามหมวดหมู่ (Dual Bar Chart + Table) */}
             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <div>
@@ -1276,7 +1271,6 @@ export default function MainInventorySystem() {
         categories={categories}
       />
 
-      {/* MODALS */}
       {isMachineModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -1544,7 +1538,6 @@ export default function MainInventorySystem() {
         </div>
       )}
 
-      {/* Modal ประวัติรับเข้า - เบิกออก */}
       {isHistoryModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col h-[85vh]">
@@ -1781,7 +1774,6 @@ export default function MainInventorySystem() {
         </div>
       )}
 
-      {/* Modal จัดการสต็อกสินค้า */}
       {isBulkTxModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setOpenTxDropdownIndex(null)}>
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
