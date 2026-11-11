@@ -1,45 +1,41 @@
 import { NextResponse } from 'next/server';
-// แก้ไข path ให้ตรงกับที่เก็บไฟล์ prisma client ของคุณ
-import { prisma } from '@/lib/prisma'; 
+import { prisma } from '@/lib/prisma'; // เช็คให้แน่ใจว่า import ถูก path
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { 
-      pureChemicalId,   // ID ของหัวเชื้อที่ถูกตัด
-      pureQty,          // จำนวนหัวเชื้อที่เบิก
-      readyChemicalId,  // ID ของน้ำยาผสมเสร็จที่จะเพิ่มเข้าสต็อก
-      readyQty,         // จำนวนน้ำยาผสมเสร็จที่ได้
-      remark,           // หมายเหตุ
-      employeeId        // (Optional) คนทำรายการ
+      pureChemicalId,   
+      pureQty,          
+      readyChemicalId,  
+      readyQty,         
+      remark,           
+      employeeId        
     } = body;
 
-    // 1. ตรวจสอบข้อมูลเบื้องต้น
     if (!pureChemicalId || !pureQty || !readyChemicalId || !readyQty) {
       return NextResponse.json({ success: false, error: 'ข้อมูลไม่ครบถ้วน' }, { status: 400 });
     }
 
-    // 2. ใช้ Prisma $transaction เพื่อให้แน่ใจว่าทั้งการตัดและการเพิ่มจะสำเร็จพร้อมกัน
     const result = await prisma.$transaction(async (tx) => {
-      
-      // --- ขั้นตอนที่ 1: เช็คสต็อกหัวเชื้อ ---
-      const pureProduct = await tx.product.findUnique({
+      // 1. เช็คสต็อกหัวเชื้อใน ProductsCatalog
+      const pureProduct = await tx.productsCatalog.findUnique({
         where: { productId: pureChemicalId }
       });
 
-      if (!pureProduct || pureProduct.stockQty < pureQty) {
+      if (!pureProduct || (pureProduct.stockQty ?? 0) < pureQty) {
         throw new Error(`สต็อกหัวเชื้อไม่เพียงพอ (เหลือ ${pureProduct?.stockQty || 0})`);
       }
 
-      // --- ขั้นตอนที่ 2: ตัดสต็อกหัวเชื้อ (OUT) ---
-      // 2.1 อัปเดตยอดคงเหลือในตาราง Product
-      await tx.product.update({
+      // 2. ตัดสต็อกหัวเชื้อ (OUT) 
+      // 2.1 อัปเดตใน ProductsCatalog
+      await tx.productsCatalog.update({
         where: { productId: pureChemicalId },
         data: { stockQty: { decrement: pureQty } }
       });
 
-      // 2.2 บันทึกประวัติ Transaction (OUT)
-      const outTx = await tx.transaction.create({
+      // 2.2 บันทึกใน InventoryTransactions
+      const outTx = await tx.inventoryTransactions.create({
         data: {
           productId: pureChemicalId,
           transactionType: 'OUT',
@@ -51,36 +47,82 @@ export async function POST(req: Request) {
         }
       });
 
-      // --- ขั้นตอนที่ 3: เพิ่มสต็อกน้ำยาผสมเสร็จ (IN) ---
-      // 3.1 คำนวณต้นทุนเฉลี่ยของน้ำยาผสมเสร็จ (เอาต้นทุนหัวเชื้อ หารด้วย จำนวนถังที่ได้)
-      const pureUnitCost = pureProduct.unitCost || 0;
-      const totalCost = pureUnitCost * pureQty;
-      const newReadyUnitCost = totalCost / readyQty;
+      // 2.3 ตัดสต็อกแบบ FIFO จาก ProductLots
+      let remainingToDeduct = pureQty;
+      const pureLots = await tx.productLots.findMany({
+        where: { productId: pureChemicalId, remainingQty: { > 0 } },
+        orderBy: { receiveDate: 'asc' } // ดึงล็อตเก่าสุดมาก่อน (FIFO)
+      });
 
-      // 3.2 อัปเดตยอดคงเหลือในตาราง Product (IN)
-      await tx.product.update({
+      let totalCostIncurred = 0; // เก็บต้นทุนรวมที่เกิดจากการตัดหัวเชื้อ
+
+      for (const lot of pureLots) {
+        if (remainingToDeduct <= 0) break;
+        
+        const deductQty = Math.min(lot.remainingQty, remainingToDeduct);
+        remainingToDeduct -= deductQty;
+        totalCostIncurred += (deductQty * lot.unitCost);
+
+        // อัปเดตยอดคงเหลือในล็อตนั้นๆ
+        await tx.productLots.update({
+          where: { lotId: lot.lotId },
+          data: { remainingQty: { decrement: deductQty } }
+        });
+
+        // บันทึกรายละเอียดการตัดล็อตใน TransactionLotDetails
+        await tx.transactionLotDetails.create({
+          data: {
+            transactionId: outTx.transactionId,
+            lotId: lot.lotId,
+            quantityUsed: deductQty,
+            costApplied: lot.unitCost
+          }
+        });
+      }
+
+      if (remainingToDeduct > 0) {
+        throw new Error('สต็อกในระบบ Lot มีปัญหา (จำนวนไม่ตรงกับยอดคงเหลือจริง)');
+      }
+
+      // 3. เพิ่มสต็อกน้ำยาผสมเสร็จ (IN)
+      // 3.1 คำนวณต้นทุนใหม่ต่อถัง (Unit Cost)
+      const newReadyUnitCost = totalCostIncurred / readyQty;
+
+      // 3.2 อัปเดตใน ProductsCatalog
+      await tx.productsCatalog.update({
         where: { productId: readyChemicalId },
         data: { 
           stockQty: { increment: readyQty },
-          // อัปเดตต้นทุนล่าสุดให้เป็นต้นทุนเฉลี่ยจากการผสมรอบนี้
           unitCost: newReadyUnitCost 
         }
       });
 
-      // 3.3 บันทึกประวัติ Transaction (IN)
-      const inTx = await tx.transaction.create({
+      // 3.3 บันทึกใน InventoryTransactions
+      const inTx = await tx.inventoryTransactions.create({
         data: {
           productId: readyChemicalId,
           transactionType: 'IN',
           quantity: readyQty,
-          referenceNo: `BATCHING-IN-REF-${outTx.transactionId}`, // อ้างอิงว่าได้มาจากการตัดหัวเชื้อบิลไหน
+          referenceNo: `BATCHING-IN-REF-${outTx.transactionId}`,
           remark: remark || 'รับเข้าจากการผสมน้ำยาคลังกลาง',
           employeeId: employeeId || null,
           transactionDate: new Date(),
         }
       });
 
-      // (Optional) ถ้าคุณมีระบบ Lot FIFO คุณต้องเขียน Logic สร้าง Lot ใหม่สำหรับ inTx ไว้ตรงนี้ด้วย
+      // 3.4 สร้าง Lot ใหม่สำหรับน้ำยาผสมเสร็จนี้ลงใน ProductLots
+      const newLotNumber = `BATCH-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${outTx.transactionId}`;
+      await tx.productLots.create({
+        data: {
+          productId: readyChemicalId,
+          lotNumber: newLotNumber,
+          unitCost: newReadyUnitCost,
+          originalQty: readyQty,
+          remainingQty: readyQty,
+          receiveDate: new Date(),
+          lotStatus: 'Active'
+        }
+      });
 
       return { outTx, inTx, newReadyUnitCost };
     });
