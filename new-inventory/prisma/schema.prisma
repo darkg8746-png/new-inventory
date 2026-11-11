@@ -8,18 +8,21 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ตารางที่ 1: หมวดหมู่สินค้า
+// -----------------------------------------------------------------------------
+// 1. product_categories (ตารางประเภท/หมวดหมู่สินค้า)[cite: 10]
+// -----------------------------------------------------------------------------
 model ProductCategories {
   id           Int               @id @default(autoincrement()) @map("category_id")
   categoryName String            @map("category_name")
   
-  // ความสัมพันธ์: 1 หมวดหมู่ มีสินค้าได้หลายชิ้น
   products     ProductsCatalog[] 
 
   @@map("product_categories")
 }
 
-// ตารางที่ 2: แคตตาล็อกสินค้า (ตารางหลัก)
+// -----------------------------------------------------------------------------
+// 2. products_catalog (ตารางสินค้าและแคตตาล็อก)[cite: 10]
+// -----------------------------------------------------------------------------
 model ProductsCatalog {
   productId        Int       @id @default(autoincrement()) @map("product_id")
   productName      String?   @map("product_name")
@@ -32,17 +35,20 @@ model ProductsCatalog {
   stockQty         Int?      @default(0) @map("product_stock_qty")
   unitName         String?   @map("unit_name")
 
-  category         ProductCategories?      @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  transactions     InventoryTransactions[]
-  machines         MachinesAssets[]
-  
-  // 🌟 เพิ่ม Relation โยงไปหาตาราง Lot (1 สินค้า มีได้หลายล็อต) 🌟
-  lots             ProductLots[]
+  category               ProductCategories?       @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  transactions           InventoryTransactions[]
+  machines               MachinesAssets[]
+  lots                   ProductLots[]
+  contractItems          ContractItems[]
+  servicePartsUsed       ServicePartsUsed[]
+  consumableOrderItems   ConsumableOrderItems[]
 
   @@map("products_catalog")
 }
 
-// ตารางที่ 3: ประวัติการทำรายการเข้า-ออกของสต็อก
+// -----------------------------------------------------------------------------
+// 3. inventory_transactions (ตารางบันทึกประวัติการเบิก-รับเข้าสินค้า)[cite: 10]
+// -----------------------------------------------------------------------------
 model InventoryTransactions {
   transactionId       Int       @id @default(autoincrement()) @map("transaction_id")
   productId           Int       @map("product_id")
@@ -55,74 +61,348 @@ model InventoryTransactions {
   supplierId          Int?      @map("supplier_id")
   remark              String?
 
-  product             ProductsCatalog @relation(fields: [productId], references: [productId], onDelete: Restrict, onUpdate: Cascade)
-
-  // 🌟 เพิ่ม Relation โยงไปหาไส้ในของบิลเบิก (1 บิลเบิก อาจตัดสต็อกหลายล็อต) 🌟
-  lotDetails          TransactionLotDetails[]
-
-  // หมายเหตุ: ปิดคอมเมนต์ไว้ก่อนจนกว่าจะสร้างตาราง Employees และ Suppliers
-  // employee         Employees?      @relation(fields: [employeeId], references: [employeeId])
-  // supplier         Suppliers?      @relation(fields: [supplierId], references: [supplierId])
+  product     ProductsCatalog         @relation(fields: [productId], references: [productId], onDelete: Restrict, onUpdate: Cascade)
+  employee    Employees?              @relation(fields: [employeeId], references: [employeeId])
+  supplier    Suppliers?              @relation(fields: [supplierId], references: [supplierId])
+  lotDetails  TransactionLotDetails[]
 
   @@map("inventory_transactions")
 }
 
-// ตารางที่ 4: ทะเบียนเครื่องจักรรายตัว (Machines Assets)
-model MachinesAssets {
-  assetId                 Int       @id @default(autoincrement()) @map("asset_id")
-  productId               Int       @map("product_id")
-  customerId              Int?      @map("customer_id")
-  assetSerialNumber       String    @unique @map("asset_serial_number") @db.VarChar(100)
-  assetQrCode             String?   @unique @map("asset_qr_code") @db.VarChar(50)
-  assetStatus             String?   @default("In_Stock") @map("asset_status") @db.VarChar(30)
-  assetInstallDate        DateTime? @map("asset_install_date") @db.Date
-  assetPurchaseCost       Float?    @map("asset_purchase_cost") 
-  assetPurchaseDate       DateTime? @map("asset_purchase_date") @db.Date
-  assetWarrantyExpireDate DateTime? @map("asset_warranty_expire_date") @db.Date
-  isInternalSn            Boolean?  @default(false) @map("is_internal_sn")
-  supplierId              Int?      @map("supplier_id")
+// -----------------------------------------------------------------------------
+// 4. customers (ตารางข้อมูลลูกค้า)[cite: 10]
+// -----------------------------------------------------------------------------
+model Customers {
+  customerId          Int     @id @default(autoincrement()) @map("customer_id")
+  customerName        String  @map("customer_name") @db.VarChar(150)
+  customerTaxname     String? @map("customer_taxname") @db.VarChar(150)
+  customerContactName String? @map("customer_contact_name")
+  customerNumber      String? @map("customer_number") @db.VarChar(20)
+  customerAddress     String? @map("customer_address")
+  customerCoordinates String? @map("customer_coordinates") @db.VarChar(100)
+  customerEmail       String? @map("customer_email") @db.VarChar(100)
+  customerLineId      String? @map("customer_line_id") @db.VarChar(50)
+  customerType        String? @map("customer_type") @db.VarChar(30)
+  customerIndustry    String? @map("customer_industry") @db.VarChar(50)
+  taxId               String? @map("tax_id") @db.VarChar(20)
+  province            String?
+  customerStatus      String  @default("Lead") @map("customer_status") @db.VarChar(30)
 
-  product                 ProductsCatalog @relation(fields: [productId], references: [productId], onDelete: Restrict, onUpdate: Cascade)
-  
-  // หมายเหตุ: ปิดคอมเมนต์ไว้ก่อนจนกว่าจะสร้างตาราง Customers และ Suppliers
-  // customer             Customers?      @relation(fields: [customerId], references: [customerId])
-  // supplier             Suppliers?      @relation(fields: [supplierId], references: [supplierId])
+  machines             MachinesAssets[]
+  contracts            Contracts[]
+  serviceTickets       ServiceTickets[]
+  consumableOrders     ConsumableOrders[]
+  customerBankAccounts CustomerBankAccounts[]
+
+  @@map("customers")
+}
+
+// -----------------------------------------------------------------------------
+// 5. employees (ตารางข้อมูลพนักงาน)[cite: 10]
+// -----------------------------------------------------------------------------
+model Employees {
+  employeeId         Int     @id @default(autoincrement()) @map("employee_id")
+  employeeName       String  @map("employee_name")
+  employeeRole       String  @map("employee_role")
+  employeePhone      String  @map("employee_phone") @db.VarChar(20)
+  employeeStatus     String  @default("Active") @map("employee_status") @db.VarChar(20)
+  employeeEmail      String? @map("employee_email") @db.VarChar(100)
+  employeeDepartment String? @map("employee_department")
+  employeeSalary     Float   @default(0.00) @map("employee_salary")
+  bankName           String? @map("bank_name")
+  bankAccountNo      String? @map("bank_account_no") @db.VarChar(30)
+
+  transactions     InventoryTransactions[]
+  contracts        Contracts[]
+  pmSchedules      PmSchedules[]
+  serviceTickets   ServiceTickets[]
+  consumableOrders ConsumableOrders[]
+  vehicleLogs      VehicleLogs[]
+
+  @@map("employees")
+}
+
+// -----------------------------------------------------------------------------
+// 6. machines_assets (ตารางทะเบียนเครื่องจักรรายตัว)[cite: 10]
+// -----------------------------------------------------------------------------
+model MachinesAssets {
+  assetId               Int       @id @default(autoincrement()) @map("asset_id")
+  productId             Int       @map("product_id")
+  customerId            Int?      @map("customer_id")
+  assetSerialNumber     String    @unique @map("asset_serial_number") @db.VarChar(100)
+  assetQrCode           String?   @unique @map("asset_qr_code") @db.VarChar(50)
+  assetStatus           String?   @default("In_Stock") @map("asset_status") @db.VarChar(30)
+  assetInstallDate      DateTime? @map("asset_install_date") @db.Date
+  assetPurchaseCost     Float?    @map("asset_purchase_cost")
+  assetPurchaseDate     DateTime? @map("asset_purchase_date") @db.Date
+  assetWarrantyExpireDate DateTime? @map("asset_warranty_expire_date") @db.Date
+  isInternalSn          Boolean?  @default(false) @map("is_internal_sn")
+  supplierId            Int?      @map("supplier_id")
+
+  product       ProductsCatalog @relation(fields: [productId], references: [productId], onDelete: Restrict, onUpdate: Cascade)
+  customer      Customers?      @relation(fields: [customerId], references: [customerId])
+  supplier      Suppliers?      @relation(fields: [supplierId], references: [supplierId])
+  contractItems ContractItems[]
+  pmSchedules   PmSchedules[]
+  serviceTickets ServiceTickets[]
 
   @@map("machines_assets")
 }
 
-// ==============================================================
-// 📦 5. ตารางใหม่: ProductLots (เก็บสต็อกแยกตามรอบการสั่งซื้อ)
-// ==============================================================
-model ProductLots {
-  lotId          Int       @id @default(autoincrement()) @map("lot_id")
-  productId      Int       @map("product_id")
-  lotNumber      String    @map("lot_number") @db.VarChar(50) // ชื่อล็อต หรือเลข PO
-  unitCost       Float     @map("unit_cost")                  // ต้นทุนรอบนี้
-  originalQty    Int       @map("original_qty")               // จำนวนตอนรับเข้า
-  remainingQty   Int       @map("remaining_qty")              // จำนวนคงเหลือจริงในล็อตนี้
-  receiveDate    DateTime  @default(now()) @map("receive_date") // วันที่รับเข้า (ใช้วิ่งคิว FIFO)
-  expireDate     DateTime? @map("expire_date") @db.Date       // วันหมดอายุ
-  lotStatus      String    @default("Active") @map("lot_status") @db.VarChar(20) // Active, Depleted
+// -----------------------------------------------------------------------------
+// 7. contracts (ตารางสัญญาเช่าและซื้อขาด)[cite: 10]
+// -----------------------------------------------------------------------------
+model Contracts {
+  contractId          Int      @id @default(autoincrement()) @map("contract_id")
+  contractNo          String   @unique @map("contract_no") @db.VarChar(50)
+  customerId          Int      @map("customer_id")
+  employeeId          Int      @map("employee_id")
+  contractType        String   @map("contract_type") @db.VarChar(30)
+  contractStartDate   DateTime @map("contract_start_date") @db.Date
+  contractEndDate     DateTime @map("contract_end_date") @db.Date
+  contractPmQuota     Int      @default(6) @map("contract_pm_quota")
+  contractFreeChemical Boolean @default(true) @map("contract_free_chemical")
+  contractStatus      String   @default("Active") @map("contract_status") @db.VarChar(30)
+  contractOrdinal     Int      @map("contract_ordinal")
+  documentStatus      String?  @map("document_status") @db.VarChar(30)
+  remarks             String?  @map("remarks")
 
-  product        ProductsCatalog          @relation(fields: [productId], references: [productId], onDelete: Restrict, onUpdate: Cascade)
-  usedDetails    TransactionLotDetails[]
+  customer         Customers          @relation(fields: [customerId], references: [customerId])
+  employee         Employees          @relation(fields: [employeeId], references: [employeeId])
+  contractItems    ContractItems[]
+  pmSchedules      PmSchedules[]
+  consumableOrders ConsumableOrders[]
+
+  @@map("contracts")
+}
+
+// -----------------------------------------------------------------------------
+// 8. contract_items (ตารางรายการเครื่องในสัญญา)[cite: 10]
+// -----------------------------------------------------------------------------
+model ContractItems {
+  contractItemId    Int   @id @default(autoincrement()) @map("contract_item_id")
+  contractId        Int   @map("contract_id")
+  assetId           Int?  @map("asset_id")
+  productId         Int?  @map("product_id")
+  quantity          Int   @default(1)
+  contractItemPrice Float @map("contract_item_price")
+  contractItemDeposit Float @default(0) @map("contract_item_deposit")
+
+  contract Contracts       @relation(fields: [contractId], references: [contractId], onDelete: Cascade)
+  asset    MachinesAssets? @relation(fields: [assetId], references: [assetId])
+  product  ProductsCatalog? @relation(fields: [productId], references: [productId])
+
+  @@map("contract_items")
+}
+
+// -----------------------------------------------------------------------------
+// 9. pm_schedules (ตารางแผนนัดบริการ PM ล่วงหน้า)[cite: 10]
+// -----------------------------------------------------------------------------
+model PmSchedules {
+  scheduleId         Int      @id @default(autoincrement()) @map("schedule_id")
+  contractId         Int      @map("contract_id")
+  assetId            Int      @map("asset_id")
+  employeeId         Int      @map("employee_id")
+  scheduleRoundNo    Int      @map("schedule_round_no")
+  schedulePlanDate   DateTime @map("schedule_plan_date") @db.Date
+  scheduleStatus     String   @default("Pending") @map("schedule_status") @db.VarChar(30)
+
+  contract       Contracts        @relation(fields: [contractId], references: [contractId])
+  asset          MachinesAssets   @relation(fields: [assetId], references: [assetId])
+  employee       Employees        @relation(fields: [employeeId], references: [employeeId])
+  serviceTickets ServiceTickets[]
+
+  @@map("pm_schedules")
+}
+
+// -----------------------------------------------------------------------------
+// 10. service_tickets (ตารางใบงานบริการและแจ้งซ่อมจริง)[cite: 10]
+// -----------------------------------------------------------------------------
+model ServiceTickets {
+  ticketId            Int      @id @default(autoincrement()) @map("ticket_id")
+  ticketNo            String   @unique @map("ticket_no") @db.VarChar(50)
+  assetId             Int      @map("asset_id")
+  customerId          Int      @map("customer_id")
+  scheduleId          Int?     @map("schedule_id")
+  employeeId          Int      @map("employee_id")
+  ticketType          String   @map("ticket_type") @db.VarChar(30)
+  ticketProblem       String?  @map("ticket_problem")
+  ticketSolution      String?  @map("ticket_solution")
+  ticketServiceDate   DateTime @map("ticket_service_date")
+  ticketServiceCharge Float    @default(0.00) @map("ticket_service_charge")
+  ticketStatus        String   @default("Open") @map("ticket_status") @db.VarChar(30)
+
+  asset            MachinesAssets     @relation(fields: [assetId], references: [assetId])
+  customer         Customers          @relation(fields: [customerId], references: [customerId])
+  schedule         PmSchedules?       @relation(fields: [scheduleId], references: [scheduleId])
+  employee         Employees          @relation(fields: [employeeId], references: [employeeId])
+  servicePartsUsed ServicePartsUsed[]
+
+  @@map("service_tickets")
+}
+
+// -----------------------------------------------------------------------------
+// 11. service_parts_used (ตารางเบิกอะไหล่ในงานซ่อม)[cite: 10]
+// -----------------------------------------------------------------------------
+model ServicePartsUsed {
+  partUsedId        Int   @id @default(autoincrement()) @map("part_used_id")
+  ticketId          Int   @map("ticket_id")
+  productId         Int   @map("product_id")
+  partUsedQty       Int   @default(1) @map("part_used_qty")
+  partUsedUnitCost  Float @default(0.00) @map("part_used_unit_cost")
+  partUsedSalePrice Float @default(0.00) @map("part_used_sale_price")
+
+  ticket  ServiceTickets  @relation(fields: [ticketId], references: [ticketId], onDelete: Cascade)
+  product ProductsCatalog @relation(fields: [productId], references: [productId])
+
+  @@map("service_parts_used")
+}
+
+// -----------------------------------------------------------------------------
+// 12. consumable_orders (ตารางใบสั่งส่งน้ำยาเคมีภัณฑ์)[cite: 10]
+// -----------------------------------------------------------------------------
+model ConsumableOrders {
+  orderId             Int       @id @default(autoincrement()) @map("order_id")
+  orderNo             String    @unique @map("order_no") @db.VarChar(50)
+  customerId          Int       @map("customer_id")
+  contractId          Int?      @map("contract_id")
+  employeeId          Int       @map("employee_id")
+  orderDate           DateTime  @map("order_date")
+  orderDeliveryDate   DateTime? @map("order_delivery_date") @db.Date
+  orderTotalCost      Float     @default(0.00) @map("order_total_cost")
+  orderTotalPrice     Float     @default(0.00) @map("order_total_price")
+  orderStatus         String    @default("Pending") @map("order_status") @db.VarChar(30)
+
+  customer     Customers              @relation(fields: [customerId], references: [customerId])
+  contract     Contracts?             @relation(fields: [contractId], references: [contractId])
+  employee     Employees              @relation(fields: [employeeId], references: [employeeId])
+  orderItems   ConsumableOrderItems[]
+
+  @@map("consumable_orders")
+}
+
+// -----------------------------------------------------------------------------
+// 13. consumable_order_items (ตารางรายการน้ำยาในแต่ละบิล)[cite: 10]
+// -----------------------------------------------------------------------------
+model ConsumableOrderItems {
+  orderItemId        Int   @id @default(autoincrement()) @map("order_item_id")
+  orderId            Int   @map("order_id")
+  productId          Int   @map("product_id")
+  orderItemQty       Int   @map("order_item_qty")
+  orderItemUnitCost  Float @map("order_item_unit_cost")
+  orderItemSalePrice Float @map("order_item_sale_price")
+
+  order   ConsumableOrders @relation(fields: [orderId], references: [orderId], onDelete: Cascade)
+  product ProductsCatalog  @relation(fields: [productId], references: [productId])
+
+  @@map("consumable_order_items")
+}
+
+// -----------------------------------------------------------------------------
+// 14. vehicles (ตารางทะเบียนรถยนต์บริษัท)[cite: 10]
+// -----------------------------------------------------------------------------
+model Vehicles {
+  vehicleId      Int    @id @default(autoincrement()) @map("vehicle_id")
+  vehiclePlate   String @unique @map("vehicle_plate")
+  vehicleBrand   String @map("vehicle_brand")
+  vehicleType    String @map("vehicle_type")
+  currentMileage Int    @default(0) @map("current_mileage")
+  vehicleStatus  String @default("Available") @map("vehicle_status")
+
+  vehicleLogs VehicleLogs[]
+
+  @@map("vehicles")
+}
+
+// -----------------------------------------------------------------------------
+// 15. vehicle_logs (ตารางประวัติการใช้รถและแจ้งเตือน)[cite: 10]
+// -----------------------------------------------------------------------------
+model VehicleLogs {
+  logId           Int      @id @default(autoincrement()) @map("log_id")
+  vehicleId       Int      @map("vehicle_id")
+  employeeId      Int      @map("employee_id")
+  logDatetime     DateTime @default(now()) @map("log_datetime")
+  mileage         Int      @map("mileage")
+  purpose         String   @map("purpose")
+  gpsLatitude     Float?   @map("gps_latitude")
+  gpsLongitude    Float?   @map("gps_longitude")
+  googleMapsLink  String?  @map("google_maps_link") @db.VarChar(255)
+
+  vehicle  Vehicles  @relation(fields: [vehicleId], references: [vehicleId])
+  employee Employees @relation(fields: [employeeId], references: [employeeId])
+
+  @@map("vehicle_logs")
+}
+
+// -----------------------------------------------------------------------------
+// 16. suppliers (ตารางข้อมูลคู่ค้า/ซัพพลายเออร์)[cite: 10]
+// -----------------------------------------------------------------------------
+model Suppliers {
+  supplierId      Int     @id @default(autoincrement()) @map("supplier_id")
+  supplierName    String  @map("supplier_name")
+  contactName     String? @map("contact_name")
+  supplierPhone   String? @map("supplier_phone") @db.VarChar(20)
+  supplierEmail   String? @map("supplier_email") @db.VarChar(100)
+  supplierAddress String? @map("supplier_address")
+  taxId           String? @map("tax_id") @db.VarChar(20)
+  creditTerm      Int     @default(0) @map("credit_term")
+  supplierStatus  String  @default("Active") @map("supplier_status") @db.VarChar(30)
+
+  transactions InventoryTransactions[]
+  machines     MachinesAssets[]
+
+  @@map("suppliers")
+}
+
+// -----------------------------------------------------------------------------
+// 17. customer_bank_accounts (ตารางบัญชีธนาคารของลูกค้า)[cite: 10]
+// -----------------------------------------------------------------------------
+model CustomerBankAccounts {
+  custBankId    Int     @id @default(autoincrement()) @map("cust_bank_id")
+  customerId    Int     @map("customer_id")
+  bankName      String  @map("bank_name") @db.VarChar(50)
+  accountNumber String  @map("account_number") @db.VarChar(20)
+  accountName   String? @map("account_name")
+  isPrimary     Boolean @default(false) @map("is_primary")
+  accountStatus String  @default("Active") @map("account_status") @db.VarChar(20)
+
+  customer Customers @relation(fields: [customerId], references: [customerId], onDelete: Cascade)
+
+  @@map("customer_bank_accounts")
+}
+
+// -----------------------------------------------------------------------------
+// 18. product_lots (ทะเบียนล็อตสินค้า FIFO)[cite: 10]
+// -----------------------------------------------------------------------------
+model ProductLots {
+  lotId        Int       @id @default(autoincrement()) @map("lot_id")
+  productId    Int       @map("product_id")
+  lotNumber    String    @map("lot_number") @db.VarChar(50)
+  unitCost     Float     @map("unit_cost")
+  originalQty  Int       @map("original_qty")
+  remainingQty Int       @map("remaining_qty")
+  receiveDate  DateTime  @default(now()) @map("receive_date")
+  expireDate   DateTime? @map("expire_date") @db.Date
+  lotStatus    String    @default("Active") @map("lot_status") @db.VarChar(20)
+
+  product     ProductsCatalog         @relation(fields: [productId], references: [productId], onDelete: Restrict, onUpdate: Cascade)
+  usedDetails TransactionLotDetails[]
 
   @@map("product_lots")
 }
 
-// ==============================================================
-// 📝 6. ตารางใหม่: TransactionLotDetails (ไส้ในของประวัติเบิก - บอกว่าหยิบจากล็อตไหนไปบ้าง)
-// ==============================================================
+// -----------------------------------------------------------------------------
+// 19. transaction_lot_details (รายละเอียดการตัด Lot ตามบิล)[cite: 10]
+// -----------------------------------------------------------------------------
 model TransactionLotDetails {
-  detailId       Int       @id @default(autoincrement()) @map("detail_id")
-  transactionId  Int       @map("transaction_id")
-  lotId          Int       @map("lot_id")
-  quantityUsed   Int       @map("quantity_used")
-  costApplied    Float     @map("cost_applied") // ต้นทุน ณ ตอนที่โดนเบิก
+  detailId      Int   @id @default(autoincrement()) @map("detail_id")
+  transactionId Int   @map("transaction_id")
+  lotId         Int   @map("lot_id")
+  quantityUsed  Int   @map("quantity_used")
+  costApplied   Float @map("cost_applied")
 
-  transaction    InventoryTransactions @relation(fields: [transactionId], references: [transactionId], onDelete: Cascade)
-  lot            ProductLots           @relation(fields: [lotId], references: [lotId], onDelete: Restrict)
+  transaction InventoryTransactions @relation(fields: [transactionId], references: [transactionId], onDelete: Cascade)
+  lot         ProductLots           @relation(fields: [lotId], references: [lotId], onDelete: Restrict)
 
   @@map("transaction_lot_details")
 }
