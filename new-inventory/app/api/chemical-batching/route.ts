@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma'; // เช็คให้แน่ใจว่า import ถูก path
+import { prisma } from '@/lib/prisma';
 
 export async function POST(req: Request) {
   try {
@@ -28,13 +28,11 @@ export async function POST(req: Request) {
       }
 
       // 2. ตัดสต็อกหัวเชื้อ (OUT) 
-      // 2.1 อัปเดตใน ProductsCatalog
       await tx.productsCatalog.update({
         where: { productId: pureChemicalId },
         data: { stockQty: { decrement: pureQty } }
       });
 
-      // 2.2 บันทึกใน InventoryTransactions
       const outTx = await tx.inventoryTransactions.create({
         data: {
           productId: pureChemicalId,
@@ -47,14 +45,17 @@ export async function POST(req: Request) {
         }
       });
 
-      // 2.3 ตัดสต็อกแบบ FIFO จาก ProductLots
+      // 3. ตัดสต็อกแบบ FIFO จาก ProductLots (แก้ตรงนี้ใช้ { gt: 0 } แทน { > 0 })
       let remainingToDeduct = pureQty;
       const pureLots = await tx.productLots.findMany({
-        where: { productId: pureChemicalId, remainingQty: { > 0 } },
-        orderBy: { receiveDate: 'asc' } // ดึงล็อตเก่าสุดมาก่อน (FIFO)
+        where: { 
+          productId: pureChemicalId, 
+          remainingQty: { gt: 0 } // แก้ไขเป็น gt: 0
+        },
+        orderBy: { receiveDate: 'asc' } 
       });
 
-      let totalCostIncurred = 0; // เก็บต้นทุนรวมที่เกิดจากการตัดหัวเชื้อ
+      let totalCostIncurred = 0; 
 
       for (const lot of pureLots) {
         if (remainingToDeduct <= 0) break;
@@ -63,13 +64,11 @@ export async function POST(req: Request) {
         remainingToDeduct -= deductQty;
         totalCostIncurred += (deductQty * lot.unitCost);
 
-        // อัปเดตยอดคงเหลือในล็อตนั้นๆ
         await tx.productLots.update({
           where: { lotId: lot.lotId },
           data: { remainingQty: { decrement: deductQty } }
         });
 
-        // บันทึกรายละเอียดการตัดล็อตใน TransactionLotDetails
         await tx.transactionLotDetails.create({
           data: {
             transactionId: outTx.transactionId,
@@ -84,11 +83,9 @@ export async function POST(req: Request) {
         throw new Error('สต็อกในระบบ Lot มีปัญหา (จำนวนไม่ตรงกับยอดคงเหลือจริง)');
       }
 
-      // 3. เพิ่มสต็อกน้ำยาผสมเสร็จ (IN)
-      // 3.1 คำนวณต้นทุนใหม่ต่อถัง (Unit Cost)
+      // 4. เพิ่มสต็อกน้ำยาผสมเสร็จ (IN)
       const newReadyUnitCost = totalCostIncurred / readyQty;
 
-      // 3.2 อัปเดตใน ProductsCatalog
       await tx.productsCatalog.update({
         where: { productId: readyChemicalId },
         data: { 
@@ -97,7 +94,6 @@ export async function POST(req: Request) {
         }
       });
 
-      // 3.3 บันทึกใน InventoryTransactions
       const inTx = await tx.inventoryTransactions.create({
         data: {
           productId: readyChemicalId,
@@ -110,7 +106,6 @@ export async function POST(req: Request) {
         }
       });
 
-      // 3.4 สร้าง Lot ใหม่สำหรับน้ำยาผสมเสร็จนี้ลงใน ProductLots
       const newLotNumber = `BATCH-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${outTx.transactionId}`;
       await tx.productLots.create({
         data: {
