@@ -29,72 +29,70 @@ export async function POST(request: Request) {
       // 1. คำนวณต้นทุนและราคาขายรวมจาก items ที่ส่งมา
       const processedItems = await Promise.all(
         items.map(async (item: { product_id: number; quantity: number }) => {
-          const product = await tx.products_catalog.findUnique({
-            where: { product_id: item.product_id },
+          const product = await tx.productsCatalog.findUnique({
+            where: { productId: item.product_id },
           });
 
           if (!product) {
             throw new Error(`ไม่พบสินค้า (ID: ${item.product_id}) ในระบบ`);
           }
 
-          if (product.product_stock_qty < item.quantity) {
-            throw new Error(`สินค้า ${product.product_name} สต็อกคงเหลือไม่พอเบิก (เหลือ ${product.product_stock_qty})`);
+          if ((product.stockQty ?? 0) < item.quantity) {
+            throw new Error(`สินค้า ${product.productName} สต็อกคงเหลือไม่พอเบิก (เหลือ ${product.stockQty})`);
           }
 
-          const unitCost = product.product_unit_cost ? Number(product.product_unit_cost) : 0;
-          const salePrice = product.product_rent_price ? Number(product.product_rent_price) : 0;
+          const unitCost = product.unitCost ? Number(product.unitCost) : 0;
+          const salePrice = product.rentPrice ? Number(product.rentPrice) : 0;
 
           totalCost += unitCost * item.quantity;
           totalPrice += salePrice * item.quantity;
 
           return {
-            product_id: item.product_id,
-            order_item_qty: item.quantity,
-            order_item_unit_cost: unitCost,
-            order_item_sale_price: salePrice,
+            productId: item.product_id,
+            orderItemQty: item.quantity,
+            orderItemUnitCost: unitCost,
+            orderItemSalePrice: salePrice,
           };
         })
       );
 
-      // 2. บันทึกหัวบิลลงในตาราง consumable_orders[cite: 6]
-      const newOrder = await tx.consumable_orders.create({
+      // 2. บันทึกหัวบิลลงในตาราง consumableOrders
+      const newOrder = await tx.consumableOrders.create({
         data: {
-          order_no,
-          customer_id: Number(customer_id),
-          contract_id: contract_id ? Number(contract_id) : null,
-          employee_id: employee_id ? Number(employee_id) : null,
-          order_date: new Date(),
-          order_total_cost: totalCost,
-          order_total_price: totalPrice,
-          order_status: 'Delivered', // หรือ Pending ตามกระบวนการทำงาน
-          consumable_order_items: {
+          orderNo: order_no,
+          customerId: Number(customer_id),
+          contractId: contract_id ? Number(contract_id) : null,
+          employeeId: employee_id ? Number(employee_id) : null,
+          orderDate: new Date(),
+          orderTotalCost: totalCost,
+          orderTotalPrice: totalPrice,
+          orderStatus: 'Delivered',
+          consumableOrderItems: {
             create: processedItems,
           },
         },
         include: {
-          consumable_order_items: true,
+          consumableOrderItems: true,
         },
       });
 
-      // 3. วนลูปบันทึกประวัติการตัดสต็อกใน inventory_transactions และอัปเดตสต็อกคงเหลือ[cite: 6]
+      // 3. วนลูปบันทึกประวัติการตัดสต็อกใน inventoryTransactions และอัปเดตสต็อกคงเหลือ
       for (const item of items) {
-        // บันทึกประวัติ Type 'OUT'[cite: 6]
-        await tx.inventory_transactions.create({
+        await tx.inventoryTransactions.create({
           data: {
-            product_id: item.product_id,
-            employee_id: employee_id ? Number(employee_id) : null,
-            transaction_type: 'OUT',
+            productId: item.product_id,
+            employeeId: employee_id ? Number(employee_id) : null,
+            transactionType: 'OUT',
             quantity: item.quantity,
-            reference_no: order_no,
+            referenceNo: order_no,
             remark: `เบิกน้ำยาเคมีภัณฑ์ตามใบสั่งซื้อ ${order_no}`,
           },
         });
 
-        // ตัดจำนวนสต็อกคงเหลือใน products_catalog[cite: 6]
-        await tx.products_catalog.update({
-          where: { product_id: item.product_id },
+        await tx.productsCatalog.update({
+          where: { productId: item.product_id },
           data: {
-            product_stock_qty: {
+            stockQty: {
               decrement: item.quantity,
             },
           },
