@@ -47,7 +47,7 @@ model ProductsCatalog {
 }
 
 // -----------------------------------------------------------------------------
-// 3. inventory_transactions (ตารางบันทึกประวัติการเบิก-รับเข้าสินค้า)[cite: 10]
+// 3. inventory_transactions (ตารางบันทึกประวัติการเบิก-รับเข้าสินค้า)
 // -----------------------------------------------------------------------------
 model InventoryTransactions {
   transactionId       Int       @id @default(autoincrement()) @map("transaction_id")
@@ -62,8 +62,8 @@ model InventoryTransactions {
   remark              String?
 
   product     ProductsCatalog         @relation(fields: [productId], references: [productId], onDelete: Restrict, onUpdate: Cascade)
-  employee    Employees?              @relation(fields: [employeeId], references: [employeeId])
-  supplier    Suppliers?              @relation(fields: [supplierId], references: [supplierId])
+  employee    Employees?              @relation(fields: [employeeId], references: [employeeId], onDelete: SetNull, onUpdate: Cascade)
+  supplier    Suppliers?              @relation(fields: [supplierId], references: [supplierId], onDelete: SetNull, onUpdate: Cascade)
   lotDetails  TransactionLotDetails[]
 
   @@map("inventory_transactions")
