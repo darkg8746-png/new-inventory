@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Coins, Layers, ShoppingCart } from 'lucide-react';
+import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Coins, Layers, ShoppingCart, FlaskConical } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import PrintQrModal from '@/components/PrintQrModal';
 import ConsumableOrderModal from '@/components/ConsumableOrderModal';
+import Link from 'next/link';
 
 interface Category { 
   id: number; 
@@ -106,7 +107,6 @@ export default function MainInventorySystem() {
   const [openTxDropdownIndex, setOpenTxDropdownIndex] = useState<number | null>(null);
   const [txProductSearch, setTxProductSearch] = useState('');
 
-  // History Modal States & Filters
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [transactionsHistory, setTransactionsHistory] = useState<Transaction[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -653,34 +653,43 @@ export default function MainInventorySystem() {
             </div>
           </div>
           
-          <div className="flex flex-wrap bg-slate-950 p-1.5 rounded-xl border border-slate-800 w-full lg:w-auto gap-1">
-            <button 
-              onClick={() => setActiveTab('quick_check')}
-              className={`flex-1 lg:flex-none px-4 py-2 rounded-lg font-medium text-xs md:text-sm transition flex items-center justify-center gap-1.5 ${activeTab === 'quick_check' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+          <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+            <div className="flex flex-wrap bg-slate-950 p-1.5 rounded-xl border border-slate-800 flex-1 lg:flex-none gap-1">
+              <button 
+                onClick={() => setActiveTab('quick_check')}
+                className={`flex-1 lg:flex-none px-4 py-2 rounded-lg font-medium text-xs md:text-sm transition flex items-center justify-center gap-1.5 ${activeTab === 'quick_check' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Zap size={16} /> Quick Check หน้างาน
+              </button>
+              <button 
+                onClick={() => setActiveTab('inventory')}
+                className={`flex-1 lg:flex-none px-4 py-2 rounded-lg font-medium text-xs md:text-sm transition flex items-center justify-center gap-1.5 ${activeTab === 'inventory' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Package size={16} /> คลังสินค้าหลัก
+              </button>
+              <button 
+                onClick={() => setActiveTab('machines')}
+                className={`flex-1 lg:flex-none px-4 py-2 rounded-lg font-medium text-xs md:text-sm transition flex items-center justify-center gap-1.5 ${activeTab === 'machines' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Server size={16} /> ทะเบียนเครื่องจักร (SN)
+              </button>
+              <button 
+                onClick={() => {
+                  setActiveTab('analytics');
+                  if (!valuationData) fetchValuationReport();
+                }}
+                className={`flex-1 lg:flex-none px-4 py-2 rounded-lg font-medium text-xs md:text-sm transition flex items-center justify-center gap-1.5 ${activeTab === 'analytics' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+              >
+                <BarChart3 size={16} /> สรุปภาพรวม
+              </button>
+            </div>
+            
+            <Link 
+              href="/chemical" 
+              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition flex items-center gap-2 shadow-lg shadow-indigo-600/20 whitespace-nowrap"
             >
-              <Zap size={16} /> Quick Check หน้างาน
-            </button>
-            <button 
-              onClick={() => setActiveTab('inventory')}
-              className={`flex-1 lg:flex-none px-4 py-2 rounded-lg font-medium text-xs md:text-sm transition flex items-center justify-center gap-1.5 ${activeTab === 'inventory' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
-            >
-              <Package size={16} /> คลังสินค้าหลัก
-            </button>
-            <button 
-              onClick={() => setActiveTab('machines')}
-              className={`flex-1 lg:flex-none px-4 py-2 rounded-lg font-medium text-xs md:text-sm transition flex items-center justify-center gap-1.5 ${activeTab === 'machines' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
-            >
-              <Server size={16} /> ทะเบียนเครื่องจักร (SN)
-            </button>
-            <button 
-              onClick={() => {
-                setActiveTab('analytics');
-                if (!valuationData) fetchValuationReport();
-              }}
-              className={`flex-1 lg:flex-none px-4 py-2 rounded-lg font-medium text-xs md:text-sm transition flex items-center justify-center gap-1.5 ${activeTab === 'analytics' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
-            >
-              <BarChart3 size={16} /> สรุปภาพรวม
-            </button>
+              <FlaskConical size={18} /> ระบบผสมน้ำยา & จัดส่ง
+            </Link>
           </div>
         </div>
 
