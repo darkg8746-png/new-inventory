@@ -61,18 +61,18 @@ export async function POST(request: Request) {
         data: {
           orderNo: order_no,
           customerId: Number(customer_id),
-          contractId: contract_id ? Number(contract_id) : null,
-          employeeId: employee_id ? Number(employee_id) : null,
+          contractId: contract_id ? Number(contract_id) : undefined,
+          employeeId: employee_id ? Number(employee_id) : 1, // กำหนดค่า default เป็น 1 หากไม่ได้ส่งพนักงานมา
           orderDate: new Date(),
           orderTotalCost: totalCost,
           orderTotalPrice: totalPrice,
           orderStatus: 'Delivered',
-          consumableOrderItems: {
+          orderItems: { // 🛠️ แก้จาก consumableOrderItems เป็น orderItems ตาม Prisma Schema
             create: processedItems,
           },
         },
         include: {
-          consumableOrderItems: true,
+          orderItems: true, // 🛠️ แก้จาก consumableOrderItems เป็น orderItems
         },
       });
 
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
         await tx.inventoryTransactions.create({
           data: {
             productId: item.product_id,
-            employeeId: employee_id ? Number(employee_id) : null,
+            employeeId: employee_id ? Number(employee_id) : 1,
             transactionType: 'OUT',
             quantity: item.quantity,
             referenceNo: order_no,
