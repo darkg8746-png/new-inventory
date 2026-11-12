@@ -323,7 +323,6 @@ export default function MainInventorySystem() {
     const validItems = bulkTxItems.filter(item => item.productId !== '' && item.quantity > 0);
     if (validItems.length === 0) return alert('กรุณาเลือกสินค้าและระบุจำนวน');
 
-    // เช็กดักซ้ำอีกชั้น: ถ้าเป็นการเบิกออก (OUT) ห้ามมีน้ำยาปนอยู่เด็ดขาด
     if (bulkTxType === 'OUT') {
       const hasChemical = validItems.some(item => {
         const prod = safeProducts.find(p => p.productId === item.productId);
@@ -417,16 +416,20 @@ export default function MainInventorySystem() {
   const safeCategories = categories || [];
   const safeMachines = machines || [];
 
+  // ⭐ ปรับปรุงฟังก์ชันเช็คสินค้าสิ้นเปลือง (ยึด requiresSerialNumber เป็นหลัก)
   const isConsumableProduct = (p: Product) => {
     const catId = p.categoryId;
-    const pName = (p.productName || '').toLowerCase();
     const category = safeCategories.find(c => c.id === catId);
-    const catName = (category?.categoryName || '').toLowerCase();
 
     if (category && category.requiresSerialNumber === false) {
       return true;
     }
+    if (category && category.requiresSerialNumber === true) {
+      return false;
+    }
 
+    const pName = (p.productName || '').toLowerCase();
+    const catName = (category?.categoryName || '').toLowerCase();
     const isBladeItem = catName.includes('blade') || catName.includes('ใบมีด') || pName.includes('blade') || pName.includes('ใบมีด');
     if (isBladeItem) return true;
 
@@ -456,22 +459,28 @@ export default function MainInventorySystem() {
 
   const currentListToDisplay = inventorySubTab === 'consumables' ? consumableProducts : machineCatalogProducts;
   
+  // ⭐ ปรับปรุงฟังก์ชันกรองหมวดหมู่ฝั่งหน้าบ้าน
   const displayedFilterCategories = safeCategories.filter(cat => {
     const matchesSearch = cat.categoryName.toLowerCase().includes(filterCategorySearch.toLowerCase());
     const catId = cat.id;
     const catName = (cat.categoryName || '').toLowerCase();
 
-    const isExplicitConsumable = cat.requiresSerialNumber === false;
-    const isBladeCat = catName.includes('blade') || catName.includes('ใบมีด');
+    if (cat.requiresSerialNumber === false) {
+      return matchesSearch && (inventorySubTab === 'consumables');
+    }
+    if (cat.requiresSerialNumber === true) {
+      return matchesSearch && (inventorySubTab === 'machines_catalog');
+    }
 
-    const isKitchenMachineCat = !isBladeCat && !isExplicitConsumable && (
+    const isBladeCat = catName.includes('blade') || catName.includes('ใบมีด');
+    const isKitchenMachineCat = !isBladeCat && (
                             catName.includes('food cutting machine') || catName.includes('bone saw') || 
                             catName.includes('stuffing') || catName.includes('peeler') || catName.includes('cutter') || 
                             catName.includes('mixer') || catName.includes('mincer') || catName.includes('slicing') || 
                             catName.includes('slicer') || catName.includes('hamburger') || catName.includes('eggeater') || 
                             catName.includes('sausage'));
 
-    const isConsumableCat = isExplicitConsumable || isBladeCat || (!isKitchenMachineCat && (
+    const isConsumableCat = isBladeCat || (!isKitchenMachineCat && (
                             catId === 5 || catId === 6 || catId === 8 || catId === 9 || catId === 10 || (catId >= 17 && catId <= 43) ||
                             catName.includes('ไส้กรอง') || catName.includes('น้ำยา') || catName.includes('ซิงค์') || catName.includes('โต๊ะ') || catName.includes('ฐานรอง')));
 
@@ -538,9 +547,6 @@ export default function MainInventorySystem() {
   const filteredCategories = safeCategories.filter(cat => cat.categoryName.toLowerCase().includes(categorySearch.toLowerCase()));
   const selectedCategoryName = safeCategories.find(c => c.id === formData.categoryId)?.categoryName || 'เลือกหมวดหมู่...';
   
-  // กรองรายการสินค้าในหน้าต่างจัดการสต็อก:
-  // - ถ้ารับเข้า (IN) แสดงทั้งหมดรวมถึงน้ำยา
-  // - ถ้าเบิกออก (OUT) ซ่อนกลุ่มน้ำยาออกทั้งหมด (บังคับเบิกผ่านหน้า /chemical)
   const filteredTxProducts = sortedProducts.filter(p => {
     if (bulkTxType === 'OUT' && isChemicalProduct(p)) return false;
     return (
@@ -673,9 +679,7 @@ export default function MainInventorySystem() {
         setIsCustomerDropdownOpen(false);
       }} 
     >
-      
       <div className="max-w-7xl mx-auto space-y-6">
-        
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-900/60 p-5 rounded-2xl border border-slate-800/80 shadow-2xl">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500"><Database size={28} /></div>
@@ -756,554 +760,554 @@ export default function MainInventorySystem() {
                   </button>
                 )}
               </div>
+          </div>
+
+          {loadingQuick ? (
+            <div className="p-12 text-center text-slate-400">กำลังโหลดข้อมูล...</div>
+          ) : quickResults.length === 0 ? (
+            <div className="p-12 text-center text-slate-500 bg-slate-900/40 rounded-2xl border border-slate-800">
+              ไม่พบรายการสินค้าที่ค้นหา
             </div>
+          ) : (
+            <div className="space-y-6">
+              {quickResults.map(group => (
+                <div key={group.categoryId} className="bg-white text-slate-800 rounded-2xl p-6 shadow-2xl border border-slate-200 space-y-4">
+                  <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+                    <h3 className="text-xl font-black text-slate-900 tracking-tight uppercase flex items-center gap-2">
+                      📂 {group.categoryName}
+                    </h3>
+                    <span className="text-slate-500 font-medium text-sm">
+                      รวมทั้งหมด {group.totalQty} เครื่อง
+                    </span>
+                  </div>
 
-            {loadingQuick ? (
-              <div className="p-12 text-center text-slate-400">กำลังโหลดข้อมูล...</div>
-            ) : quickResults.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 bg-slate-900/40 rounded-2xl border border-slate-800">
-                ไม่พบรายการสินค้าที่ค้นหา
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {quickResults.map(group => (
-                  <div key={group.categoryId} className="bg-white text-slate-800 rounded-2xl p-6 shadow-2xl border border-slate-200 space-y-4">
-                    <div className="flex justify-between items-center border-b border-slate-200 pb-3">
-                      <h3 className="text-xl font-black text-slate-900 tracking-tight uppercase flex items-center gap-2">
-                        📂 {group.categoryName}
-                      </h3>
-                      <span className="text-slate-500 font-medium text-sm">
-                        รวมทั้งหมด {group.totalQty} เครื่อง
-                      </span>
-                    </div>
+                  <div className="divide-y divide-slate-100 space-y-3">
+                    {group.modelGroups.map((mg: any, idx: number) => (
+                      <div key={idx} className="pt-3 first:pt-0 space-y-2">
+                        {mg.products.map((p: any) => {
+                          const realReadyCount = p.readyMachines ? p.readyMachines.length : (p.stockQty ?? 0);
+                          const hasRealQty = realReadyCount > 0;
 
-                    <div className="divide-y divide-slate-100 space-y-3">
-                      {group.modelGroups.map((mg: any, idx: number) => (
-                        <div key={idx} className="pt-3 first:pt-0 space-y-2">
-                          {mg.products.map((p: any) => {
-                            const realReadyCount = p.readyMachines ? p.readyMachines.length : (p.stockQty ?? 0);
-                            const hasRealQty = realReadyCount > 0;
-
-                            return (
-                              <div key={p.productId} className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3">
-                                <div className="flex items-center justify-between gap-4">
-                                  <div className="flex items-center gap-3">
-                                    <span className="px-3 py-1 bg-amber-500 text-slate-950 font-mono font-black text-sm rounded-lg shadow-sm">
-                                      {p.productModelCode || 'N/A'}
-                                    </span>
-                                    <div>
-                                      <div className="text-base font-bold text-slate-800">{p.productName}</div>
-                                      <div className="text-xs text-slate-500">รหัสสินค้า ID: #{p.productId}</div>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex items-center gap-3">
-                                    <span className={`px-4 py-1.5 rounded-xl font-bold text-sm min-w-[85px] text-center shadow-sm ${
-                                      hasRealQty ? 'bg-emerald-600 text-white' : 'bg-orange-100 text-orange-700 border border-orange-300'
-                                    }`}>
-                                      {realReadyCount} {p.unitName || 'เครื่อง'}
-                                    </span>
-                                    <button 
-                                      onClick={() => {
-                                        setBulkTxItems([{ productId: p.productId, quantity: 1, unitCost: p.unitCost || '', expireDate: '' }]);
-                                        setBulkTxType('IN');
-                                        setBulkTxDate(getTodayString());
-                                        setIsBulkTxModalOpen(true);
-                                      }}
-                                      className="px-3.5 py-1.5 bg-white hover:bg-emerald-50 text-emerald-600 border border-emerald-500 rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm"
-                                    >
-                                      + รับเข้า
-                                    </button>
+                          return (
+                            <div key={p.productId} className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3">
+                              <div className="flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-3">
+                                  <span className="px-3 py-1 bg-amber-500 text-slate-950 font-mono font-black text-sm rounded-lg shadow-sm">
+                                    {p.productModelCode || 'N/A'}
+                                  </span>
+                                  <div>
+                                    <div className="text-base font-bold text-slate-800">{p.productName}</div>
+                                    <div className="text-xs text-slate-500">รหัสสินค้า ID: #{p.productId}</div>
                                   </div>
                                 </div>
 
-                                {p.readyMachines && p.readyMachines.length > 0 && (
-                                  <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 space-y-2 text-xs">
-                                    <div className="text-amber-900 font-bold flex items-center gap-1.5">
-                                      <span>📦 รายการเครื่อง S/N พร้อมส่ง ({p.readyMachines.length} เครื่อง):</span>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                      {p.readyMachines.map((m: any) => (
-                                        <div key={m.assetId} className="bg-white border border-amber-300 px-3 py-1 rounded-lg flex items-center gap-2 shadow-sm">
-                                          <span className="font-mono font-bold text-slate-700">SN: {m.assetSerialNumber}</span>
-                                          <button 
-                                            onClick={() => {
-                                              setMachineFormData({
-                                                ...m,
-                                                assetInstallDate: m.assetInstallDate ? new Date(m.assetInstallDate).toISOString().split('T')[0] : '',
-                                                assetPurchaseDate: m.assetPurchaseDate ? new Date(m.assetPurchaseDate).toISOString().split('T')[0] : '',
-                                                assetWarrantyExpireDate: m.assetWarrantyExpireDate ? new Date(m.assetWarrantyExpireDate).toISOString().split('T')[0] : ''
-                                              });
-                                              setIsEditingMachine(true);
-                                              setIsMachineModalOpen(true);
-                                            }}
-                                            className="text-[11px] bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white px-2 py-0.5 rounded-md font-bold transition"
-                                          >
-                                            ผูกลูกค้า
-                                          </button>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'inventory' && (
-          <div className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-              <div className={`p-5 rounded-2xl flex flex-col justify-between gap-5 shadow-lg ${outOfStockItems.length > 0 ? 'bg-rose-950/30 border border-rose-500/20 shadow-rose-900/20' : 'bg-slate-900/50 border border-slate-800/80'}`}>
-                <div className="flex items-center gap-4">
-                  <div className={`p-3.5 rounded-xl shrink-0 border ${outOfStockItems.length > 0 ? 'bg-rose-500/20 text-rose-400 border-rose-500/10' : 'bg-slate-800 text-slate-500 border-slate-700'}`}><AlertOctagon size={24} /></div>
-                  <div>
-                    <h4 className={`font-bold text-base flex items-center gap-1.5 ${outOfStockItems.length > 0 ? 'text-rose-400' : 'text-slate-400'}`}>🚨 สินค้าหมดเกลี้ยง</h4>
-                    <p className="text-slate-300 text-sm mt-1">ต้องสั่งเพิ่ม <strong className={`text-xl mx-1 ${outOfStockItems.length > 0 ? 'text-rose-400' : 'text-slate-400'}`}>{outOfStockItems.length}</strong> รายการ</p>
-                  </div>
-                </div>
-                <button onClick={() => { setLowStockModalType('OUT'); setIsLowStockModalOpen(true); }} className={`w-full py-2.5 rounded-xl text-sm font-bold transition flex justify-center items-center gap-2 border ${outOfStockItems.length > 0 ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/20' : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700'}`}>🔍 ดูรายการของหมด</button>
-              </div>
-
-              <div className={`p-5 rounded-2xl flex flex-col justify-between gap-5 shadow-lg ${lowStockItems.length > 0 ? 'bg-amber-950/30 border border-amber-500/20 shadow-amber-900/20' : 'bg-slate-900/50 border border-slate-800/80'}`}>
-                <div className="flex items-center gap-4">
-                  <div className={`p-3.5 rounded-xl shrink-0 border ${lowStockItems.length > 0 ? 'bg-amber-500/20 text-amber-400 border-amber-500/10' : 'bg-slate-800 text-slate-500 border-slate-700'}`}><AlertTriangle size={24} /></div>
-                  <div>
-                    <h4 className={`font-bold text-base flex items-center gap-1.5 ${lowStockItems.length > 0 ? 'text-amber-400' : 'text-slate-400'}`}>⚠️ สินค้าใกล้หมด (1-5)</h4>
-                    <p className="text-slate-300 text-sm mt-1">สต็อกต่ำจำนวน <strong className={`text-xl mx-1 ${lowStockItems.length > 0 ? 'text-amber-400' : 'text-slate-400'}`}>{lowStockItems.length}</strong> รายการ</p>
-                  </div>
-                </div>
-                <button onClick={() => { setLowStockModalType('LOW'); setIsLowStockModalOpen(true); }} className={`w-full py-2.5 rounded-xl text-sm font-bold transition flex justify-center items-center gap-2 border ${lowStockItems.length > 0 ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/20' : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700'}`}>🔍 ดูรายการใกล้หมด</button>
-              </div>
-
-              <div className={`p-5 rounded-2xl flex flex-col justify-between gap-5 shadow-lg md:col-span-2 lg:col-span-1 ${alerts.expiring?.length > 0 ? 'bg-blue-950/30 border border-blue-500/20 shadow-blue-900/20' : 'bg-slate-900/50 border border-slate-800/80'}`}>
-                <div className="flex items-center gap-4">
-                  <div className={`p-3.5 rounded-xl shrink-0 border ${alerts.expiring?.length > 0 ? 'bg-blue-500/20 text-blue-400 border-blue-500/10' : 'bg-slate-800 text-slate-500 border-slate-700'}`}><Clock size={24} /></div>
-                  <div>
-                    <h4 className={`font-bold text-base flex items-center gap-1.5 ${alerts.expiring?.length > 0 ? 'text-blue-400' : 'text-slate-400'}`}>⏱️ Lot ใกล้หมดอายุ</h4>
-                    <p className="text-slate-300 text-sm mt-1">เสี่ยงหมดอายุ <strong className={`text-xl mx-1 ${alerts.expiring?.length > 0 ? 'text-blue-400' : 'text-slate-400'}`}>{alerts.expiring?.length || 0}</strong> ล็อต</p>
-                  </div>
-                </div>
-                <button onClick={() => setIsExpiringModalOpen(true)} disabled={!alerts.expiring || alerts.expiring.length === 0} className={`w-full py-2.5 rounded-xl text-sm font-bold transition flex justify-center items-center gap-2 border ${alerts.expiring?.length > 0 ? 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border-blue-500/20' : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed opacity-50'}`}>🔍 ดูรายการใกล้หมดอายุ</button>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap justify-end gap-3">
-              <button onClick={() => setIsPrintModalOpen(true)} className="bg-slate-800 hover:bg-slate-700 text-emerald-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><Printer size={18} /> พิมพ์ป้าย QR Code</button>
-              <button onClick={fetchHistory} className="bg-slate-800 hover:bg-slate-700 text-blue-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><ClipboardList size={18} /> ประวัติรับ/เบิก</button>
-              <button onClick={() => { setBulkTxItems([{ productId: '', quantity: 1, unitCost: '', expireDate: '' }]); setBulkTxRef(''); setBulkTxRemark(''); setBulkTxEmployee(''); setBulkTxSupplier(''); setBulkTxType('IN'); setBulkTxDate(getTodayString()); setIsBulkTxModalOpen(true); }} className="bg-slate-800 hover:bg-slate-700 text-emerald-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><ArrowRightLeft size={18} /> จัดการสต็อก (รับ/เบิก)</button>
-              <button onClick={() => setIsCategoryModalOpen(true)} className="bg-slate-800 hover:bg-slate-700 text-amber-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><FolderPlus size={18} /> จัดการหมวดหมู่</button>
-              <button onClick={() => setIsAddModalOpen(true)} className="bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition shadow-lg shadow-amber-600/20"><Plus size={18} /> เพิ่มสินค้าใหม่</button>
-            </div>
-
-            <div className="flex items-center gap-2 bg-slate-900 p-2 rounded-2xl border border-slate-800 w-fit">
-              <button
-                onClick={() => setInventorySubTab('consumables')}
-                className={`px-5 py-2.5 rounded-xl font-bold text-sm transition flex items-center gap-2 ${
-                  inventorySubTab === 'consumables' 
-                    ? 'bg-amber-600 text-white shadow-lg' 
-                    : 'text-slate-400 hover:text-white bg-slate-950/50'
-                }`}
-              >
-                <Wrench size={16} /> อะไหล่ / ใบมีด / ข้อต่อ / สกรู (ไม่มี S/N) ({consumableProducts.length})
-              </button>
-              <button
-                onClick={() => setInventorySubTab('machines_catalog')}
-                className={`px-5 py-2.5 rounded-xl font-bold text-sm transition flex items-center gap-2 ${
-                  inventorySubTab === 'machines_catalog' 
-                    ? 'bg-indigo-600 text-white shadow-lg' 
-                    : 'text-slate-400 hover:text-white bg-slate-950/50'
-                }`}
-              >
-                <Server size={16} /> เครื่องจักร / อุปกรณ์ (มี S/N) ({machineCatalogProducts.length})
-              </button>
-            </div>
-
-            <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl shadow-2xl">
-              <div className="p-5 border-b border-slate-800/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <h3 className="font-bold text-lg text-white flex items-center gap-2">
-                  {inventorySubTab === 'consumables' ? <Wrench className="text-amber-500" size={20} /> : <Server className="text-indigo-400" size={20} />} 
-                  {inventorySubTab === 'consumables' ? 'รายการอะไหล่ สกรู ข้อต่อ ใบมีด (คุมด้วย Lot FIFO)' : 'รายการเครื่องจักรในแคตตาล็อก (อิง S/N อัตโนมัติ)'}
-                </h3>
-                
-                <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-                  <div className="relative w-full sm:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input 
-                      type="text" 
-                      placeholder="ค้นหาชื่อ, โมเดล, ประเภท..." 
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-8 py-2.5 text-sm text-white outline-none focus:border-amber-500 transition"
-                      value={inventorySearch}
-                      onChange={(e) => setInventorySearch(e.target.value)}
-                    />
-                    {inventorySearch && (
-                      <button 
-                        onClick={() => setInventorySearch('')}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="relative w-full sm:w-auto" onClick={(e) => e.stopPropagation()}>
-                    <button onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)} className="flex items-center justify-between gap-2 w-full sm:w-64 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none hover:border-amber-500 transition">
-                      <div className="flex items-center gap-2"><Filter size={16} className={selectedFilterCategories.length > 0 ? "text-amber-500" : "text-slate-400"} /><span>{selectedFilterCategories.length === 0 ? 'แสดงทุกหมวดหมู่' : `กรองอยู่ (${selectedFilterCategories.length} หมวดหมู่)`}</span></div><ChevronDown size={16} className="text-slate-400" />
-                    </button>
-                    {isFilterDropdownOpen && (
-                      <div className="absolute z-10 w-full mt-2 bg-slate-900 border border-slate-700 rounded-xl shadow-xl overflow-hidden right-0">
-                        <div className="p-2 border-b border-slate-800 bg-slate-950 flex flex-col gap-2 sticky top-0 z-20">
-                          <div className="flex items-center gap-2">
-                            <div className="relative flex-1">
-                              <input type="text" autoFocus placeholder="🔍 ค้นหาหมวดหมู่..." className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-3 pr-8 py-2 text-sm text-white outline-none focus:border-amber-500 transition" value={filterCategorySearch} onChange={(e) => setFilterCategorySearch(e.target.value)}/>
-                              {filterCategorySearch && (<button onClick={() => setFilterCategorySearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"><X size={14} /></button>)}
-                            </div>
-                            {selectedFilterCategories.length > 0 && (<button onClick={() => setSelectedFilterCategories([])} className="px-3 py-2 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg text-xs font-semibold transition whitespace-nowrap flex items-center gap-1"><Trash2 size={12} /> ล้างที่เลือก</button>)}
-                          </div>
-                        </div>
-                        <ul className="max-h-60 overflow-y-auto p-2 space-y-1">
-                          {displayedFilterCategories.map(cat => (
-                            <li key={cat.id}><label className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-800 cursor-pointer text-sm text-slate-300 transition-colors select-none"><input type="checkbox" className="accent-amber-500 w-4 h-4 cursor-pointer" checked={selectedFilterCategories.includes(cat.id)} onChange={() => toggleFilterCategory(cat.id)}/>{cat.categoryName}</label></li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto rounded-b-2xl">
-                <table className="w-full text-left border-collapse">
-                  <thead><tr className="bg-slate-950/60 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-800"><th className="p-4 font-semibold">รหัส/ชื่อสินค้า</th><th className="p-4 font-semibold">หมวดหมู่</th><th className="p-4 font-semibold">สถานะ</th><th className="p-4 font-semibold text-right">ราคาขาย (฿)</th><th className="p-4 font-semibold text-center">คงเหลือ (Summary)</th><th className="p-4 font-semibold text-center">จัดการ</th></tr></thead>
-                  <tbody className="divide-y divide-slate-800/50 text-sm">
-                    {loading ? (<tr><td colSpan={6} className="p-16 text-center text-slate-400">กำลังโหลด...</td></tr>) : displayProducts.length === 0 ? (<tr><td colSpan={6} className="p-16 text-center text-slate-400">ไม่พบข้อมูลสินค้าตรงตามเงื่อนไขที่ค้นหา</td></tr>) : (
-                      displayProducts.map((item) => {
-                        const category = safeCategories.find(c => c.id === item.categoryId);
-                        const currentStock = item.stockQty ?? 0;
-                        return (
-                          <tr key={item.productId} className="hover:bg-slate-800/40 transition">
-                            <td className="p-4 font-medium text-white flex items-center gap-3"><div className="p-2 bg-slate-800 rounded-lg text-amber-400"><Package size={18} /></div><div><div>{item.productName || 'ไม่มีชื่อ'}</div><div className="text-xs text-slate-500 font-mono mt-0.5">{item.productModelCode || 'ไม่มีรหัสรุ่น'}</div></div></td>
-                            <td className="p-4 text-slate-300"><span className="px-2.5 py-1 bg-slate-800/70 rounded-md text-xs border border-slate-700/50">{category?.categoryName || '-'}</span></td>
-                            <td className="p-4">{item.isPreorder ? <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">พรีออเดอร์</span> : <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">พร้อมส่ง</span>}</td>
-                            <td className="p-4 text-right font-semibold text-slate-200">{item.salePrice ? Number(item.salePrice).toLocaleString() : '0.00'} ฿</td>
-                            <td className="p-4 text-center"><span className={`px-3 py-1 rounded-full text-xs font-bold border inline-block min-w-[70px] ${currentStock > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>{currentStock} {item.unitName || 'ชิ้น'}</span></td>
-                            <td className="p-4 text-center">
-                              <div className="flex items-center justify-center gap-1.5">
-                                <button onClick={() => { setEditFormData(item); setIsEditModalOpen(true); }} className="p-2 bg-slate-800 hover:bg-amber-500/20 text-slate-300 hover:text-amber-400 rounded-lg transition"><Edit3 size={16} /></button>
-                                <button onClick={() => handleDeleteProduct(item.productId, item.productName || '')} className="p-2 bg-slate-800 hover:bg-rose-500/20 text-slate-300 hover:text-rose-400 rounded-lg transition"><Trash2 size={16} /></button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'machines' && (
-          <div className="space-y-6">
-            <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80">
-              <div className="relative w-full md:w-96">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                <input type="text" placeholder="ค้นหา Serial Number, ชื่อรุ่น..." className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-white outline-none focus:border-indigo-500" value={machineSearch} onChange={(e) => setMachineSearch(e.target.value)} />
-              </div>
-              <button onClick={() => { 
-                setMachineFormData({ productId: sortedProducts[0]?.productId || 0, assetSerialNumber: '', assetQrCode: '', assetStatus: 'In_Stock', assetPurchaseCost: 0, assetPurchaseDate: '', assetWarrantyExpireDate: '', assetInstallDate: '', isInternalSn: false, supplierId: null, customerId: null }); 
-                setIsEditingMachine(false); 
-                setIsMachineModalOpen(true); 
-              }} className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition shadow-lg shadow-indigo-600/20 w-full md:w-auto justify-center">
-                <Plus size={18} /> ลงทะเบียนเครื่องใหม่
-              </button>
-            </div>
-
-            <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl overflow-hidden shadow-2xl">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-950/60 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-800">
-                      <th className="p-4 font-semibold whitespace-nowrap">Serial Number / QR</th>
-                      <th className="p-4 font-semibold whitespace-nowrap">ชื่อสินค้า / โมเดล</th>
-                      <th className="p-4 font-semibold whitespace-nowrap">สถานะปัจจุบัน</th>
-                      <th className="p-4 font-semibold whitespace-nowrap">ข้อมูลลูกค้า / ติดตั้ง</th>
-                      <th className="p-4 font-semibold whitespace-nowrap">ข้อมูล Supplier / รับเข้า</th>
-                      <th className="p-4 font-semibold whitespace-nowrap">ต้นทุน / ประกัน</th>
-                      <th className="p-4 font-semibold text-center whitespace-nowrap">จัดการ / ประวัติ</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/50 text-sm">
-                    {loading ? (
-                      <tr><td colSpan={7} className="p-16 text-center text-slate-400">กำลังโหลด...</td></tr>
-                    ) : filteredMachines.length === 0 ? (
-                      <tr><td colSpan={7} className="p-16 text-center text-slate-400">ยังไม่มีข้อมูลเครื่องจักร</td></tr>
-                    ) : (
-                      filteredMachines.map((m) => {
-                        const boundCustomer = customers.find(c => c.customer_id === m.customerId) || m.customer;
-                        return (
-                          <tr key={m.assetId} className="hover:bg-slate-800/40 transition">
-                            <td className="p-4">
-                              <div className="font-bold text-indigo-400 font-mono flex items-center gap-2">
-                                {m.assetSerialNumber || <span className="text-slate-500 italic">ยังไม่ระบุ SN</span>}
-                                {m.isInternalSn && <span className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px] text-slate-400 border border-slate-700">Internal</span>}
-                              </div>
-                              {m.assetQrCode ? (<div className="text-xs text-slate-500 mt-1 font-mono">QR: {m.assetQrCode}</div>) : (<div className="text-xs text-slate-700 mt-1 font-mono italic">- ไม่มี QR -</div>)}
-                            </td>
-                            <td className="p-4 text-white">
-                              <div className="font-medium">{m.product?.productName || 'ไม่ทราบชื่อรุ่น'}</div>
-                              <div className="text-xs text-slate-500 font-mono mt-0.5">รุ่น: {m.product?.productModelCode || '-'}</div>
-                            </td>
-                            <td className="p-4">{getStatusBadge(m.assetStatus)}</td>
-                            <td className="p-4 text-xs">
-                              {boundCustomer ? (
-                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 mb-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">
-                                  <UserCheck size={12} />
-                                  <span>{boundCustomer.customer_name}</span>
+                                <div className="flex items-center gap-3">
+                                  <span className={`px-4 py-1.5 rounded-xl font-bold text-sm min-w-[85px] text-center shadow-sm ${
+                                    hasRealQty ? 'bg-emerald-600 text-white' : 'bg-orange-100 text-orange-700 border border-orange-300'
+                                  }`}>
+                                    {realReadyCount} {p.unitName || 'เครื่อง'}
+                                  </span>
+                                  <button 
+                                    onClick={() => {
+                                      setBulkTxItems([{ productId: p.productId, quantity: 1, unitCost: p.unitCost || '', expireDate: '' }]);
+                                      setBulkTxType('IN');
+                                      setBulkTxDate(getTodayString());
+                                      setIsBulkTxModalOpen(true);
+                                    }}
+                                    className="px-3.5 py-1.5 bg-white hover:bg-emerald-50 text-emerald-600 border border-emerald-500 rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm"
+                                  >
+                                    + รับเข้า
+                                  </button>
                                 </div>
-                              ) : m.customerId ? (
-                                <div className="inline-block px-2 py-1 mb-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">รหัสลูกค้า: {m.customerId}</div>
-                              ) : (
-                                <div className="text-slate-600 mb-1">- ไม่ระบุลูกค้า -</div>
+                              </div>
+
+                              {p.readyMachines && p.readyMachines.length > 0 && (
+                                <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 space-y-2 text-xs">
+                                  <div className="text-amber-900 font-bold flex items-center gap-1.5">
+                                    <span>📦 รายการเครื่อง S/N พร้อมส่ง ({p.readyMachines.length} เครื่อง):</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {p.readyMachines.map((m: any) => (
+                                      <div key={m.assetId} className="bg-white border border-amber-300 px-3 py-1 rounded-lg flex items-center gap-2 shadow-sm">
+                                        <span className="font-mono font-bold text-slate-700">SN: {m.assetSerialNumber}</span>
+                                        <button 
+                                          onClick={() => {
+                                            setMachineFormData({
+                                              ...m,
+                                              assetInstallDate: m.assetInstallDate ? new Date(m.assetInstallDate).toISOString().split('T')[0] : '',
+                                              assetPurchaseDate: m.assetPurchaseDate ? new Date(m.assetPurchaseDate).toISOString().split('T')[0] : '',
+                                              assetWarrantyExpireDate: m.assetWarrantyExpireDate ? new Date(m.assetWarrantyExpireDate).toISOString().split('T')[0] : ''
+                                            });
+                                            setIsEditingMachine(true);
+                                            setIsMachineModalOpen(true);
+                                          }}
+                                          className="text-[11px] bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white px-2 py-0.5 rounded-md font-bold transition"
+                                        >
+                                          ผูกลูกค้า
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
                               )}
-                              <div className="text-slate-400">ติดตั้ง: {m.assetInstallDate ? new Date(m.assetInstallDate).toLocaleDateString('th-TH') : '-'}</div>
-                            </td>
-                            <td className="p-4 text-xs">
-                              {m.supplierId ? (<div className="inline-block px-2 py-1 mb-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">รหัสผู้ผลิต: {m.supplierId}</div>) : (<div className="text-slate-600 mb-1">- ไม่ระบุ Supplier -</div>)}
-                              <div className="text-slate-400">รับเข้า: {m.assetPurchaseDate ? new Date(m.assetPurchaseDate).toLocaleDateString('th-TH') : '-'}</div>
-                            </td>
-                            <td className="p-4 text-xs font-mono text-slate-300">
-                              <div>ต้นทุน: {m.assetPurchaseCost ? Number(m.assetPurchaseCost).toLocaleString() : '0.00'} ฿</div>
-                              <div className="text-slate-500 mt-0.5">หมดประกัน: {m.assetWarrantyExpireDate ? new Date(m.assetWarrantyExpireDate).toLocaleDateString('th-TH') : '-'}</div>
-                            </td>
-                            <td className="p-4 text-center">
-                              <div className="flex items-center justify-center gap-1.5">
-                                <button onClick={() => { setSelectedMachineForLog(m); setIsMachineLogModalOpen(true); }} title="ประวัติการย้ายเครื่อง" className="p-2 bg-slate-800 hover:bg-blue-500/20 text-slate-300 hover:text-blue-400 rounded-lg transition"><History size={16} /></button>
-                                <button onClick={() => { setMachineFormData({...m, assetInstallDate: m.assetInstallDate ? new Date(m.assetInstallDate).toISOString().split('T')[0] : '', assetPurchaseDate: m.assetPurchaseDate ? new Date(m.assetPurchaseDate).toISOString().split('T')[0] : '', assetWarrantyExpireDate: m.assetWarrantyExpireDate ? new Date(m.assetWarrantyExpireDate).toISOString().split('T')[0] : ''}); setIsEditingMachine(true); setIsMachineModalOpen(true); }} title="แก้ไขเครื่อง" className="p-2 bg-slate-800 hover:bg-amber-500/20 text-slate-300 hover:text-amber-400 rounded-lg transition"><Edit3 size={16} /></button>
-                                <button onClick={() => handleDeleteMachine(m.assetId, m.assetSerialNumber)} title="ลบเครื่อง" className="p-2 bg-slate-800 hover:bg-rose-500/20 text-slate-300 hover:text-rose-400 rounded-lg transition"><Trash2 size={16} /></button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
           </div>
         )}
+        </div>
+      )}
 
-        {activeTab === 'analytics' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl shadow-xl">
-                <p className="text-slate-400 text-xs font-medium">มูลค่าสินค้าคงเหลือรวม</p>
-                <h3 className="text-2xl font-bold text-emerald-400 mt-1 font-mono">{valuationData?.totalValuation?.toLocaleString() || '0'} ฿</h3>
-              </div>
-              <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl shadow-xl">
-                <p className="text-slate-400 text-xs font-medium">จำนวน Lot Active ในคลัง</p>
-                <h3 className="text-2xl font-bold text-white mt-1 font-mono">{valuationData?.itemCount || 0} <span className="text-sm font-normal text-slate-400">Lot</span></h3>
-              </div>
-              <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl shadow-xl">
-                <p className="text-slate-400 text-xs font-medium">เครื่องจักรปล่อยเช่า (Rented)</p>
-                <h3 className="text-2xl font-bold text-blue-400 mt-1 font-mono">{machines.filter(m => m.assetStatus === 'Rented').length} <span className="text-sm font-normal text-slate-400">เครื่อง</span></h3>
-              </div>
-              <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl shadow-xl">
-                <p className="text-slate-400 text-xs font-medium">เครื่องจักรรอซ่อม (Maintenance)</p>
-                <h3 className="text-2xl font-bold text-amber-400 mt-1 font-mono">{machines.filter(m => m.assetStatus === 'Maintenance').length} <span className="text-sm font-normal text-slate-400">เครื่อง</span></h3>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
-                <h3 className="font-bold text-base text-white flex items-center gap-2"><PieChartIcon className="text-indigo-400" size={18} /> สัดส่วนสถานะเครื่องจักร</h3>
-                {machineStatusChartData.length > 0 ? (
-                  <div className="h-64 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={machineStatusChartData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={4} dataKey="value">
-                          {machineStatusChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                        </Pie>
-                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }} formatter={(val: any) => [`${val} เครื่อง`, 'จำนวน']} />
-                        <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: '12px', color: '#94a3b8' }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (<div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีข้อมูลสถานะเครื่องจักร</div>)}
-              </div>
-
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
-                <h3 className="font-bold text-base text-white flex items-center gap-2">
-                  <TrendingUp className="text-emerald-400" size={18} /> แนวโน้มการรับเข้า VS เบิกออก รายเดือน
-                </h3>
-                {stockMovementTrendData.length > 0 ? (
-                  <div className="h-64 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={stockMovementTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="colorIn" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#10B981" stopOpacity={0.8}/>
-                            <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
-                          </linearGradient>
-                          <linearGradient id="colorOut" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#F43F5E" stopOpacity={0.8}/>
-                            <stop offset="95%" stopColor="#F43F5E" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="monthLabel" stroke="#94a3b8" fontSize={11} />
-                        <YAxis stroke="#64748b" fontSize={11} />
-                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }} />
-                        <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: '12px', color: '#94a3b8' }} />
-                        <Area type="monotone" dataKey="inQty" name="รับเข้า (IN)" stroke="#10B981" fillOpacity={1} fill="url(#colorIn)" />
-                        <Area type="monotone" dataKey="outQty" name="เบิกออก (OUT)" stroke="#F43F5E" fillOpacity={1} fill="url(#colorOut)" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีประวัติการรับเข้า-เบิกออก</div>
-                )}
-              </div>
-
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
-                <h3 className="font-bold text-base text-white flex items-center gap-2"><BarChart3 className="text-emerald-400" size={18} /> Top 5 หมวดหมู่ที่มีมูลค่าสต็อกสูงสุด</h3>
-                {topCategoryChartData.length > 0 ? (
-                  <div className="h-64 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart layout="vertical" data={topCategoryChartData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis type="number" stroke="#64748b" fontSize={11} tickFormatter={(val) => `${val.toLocaleString()}`} />
-                        <YAxis type="category" dataKey="category" stroke="#94a3b8" fontSize={12} width={70} />
-                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }} formatter={(val: any) => [`${val.toLocaleString()} ฿`, 'มูลค่ารวม']} />
-                        <Bar dataKey="value" fill="#10B981" radius={[0, 8, 8, 0]} barSize={20} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (<div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีข้อมูลมูลค่าหมวดหมู่</div>)}
-              </div>
-
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
-                <h3 className="font-bold text-base text-white flex items-center gap-2"><TrendingDown className="text-rose-400" size={18} /> Top 5 สินค้าที่ถูกเบิกใช้งานเยอะที่สุด</h3>
-                {topOutboundProductsData.length > 0 ? (
-                  <div className="h-64 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart layout="vertical" data={topOutboundProductsData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis type="number" stroke="#64748b" fontSize={11} />
-                        <YAxis type="category" dataKey="name" stroke="#94a3b8" fontSize={11} width={90} tickFormatter={(name) => name.length > 10 ? `${name.substring(0, 10)}...` : name} />
-                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }} formatter={(val: any) => [`${val} ชิ้น`, 'จำนวนเบิกออก']} />
-                        <Bar dataKey="quantity" fill="#F43F5E" radius={[0, 8, 8, 0]} barSize={20} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (<div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีประวัติการเบิกออก</div>)}
-              </div>
-            </div>
-
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-6">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+      {activeTab === 'inventory' && (
+        <div className="space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+            <div className={`p-5 rounded-2xl flex flex-col justify-between gap-5 shadow-lg ${outOfStockItems.length > 0 ? 'bg-rose-950/30 border border-rose-500/20 shadow-rose-900/20' : 'bg-slate-900/50 border border-slate-800/80'}`}>
+              <div className="flex items-center gap-4">
+                <div className={`p-3.5 rounded-xl shrink-0 border ${outOfStockItems.length > 0 ? 'bg-rose-500/20 text-rose-400 border-rose-500/10' : 'bg-slate-800 text-slate-500 border-slate-700'}`}><AlertOctagon size={24} /></div>
                 <div>
-                  <h3 className="font-bold text-lg text-white flex items-center gap-2">
-                    <Coins className="text-amber-400" size={20} /> สรุปยอดการใช้งานและมูลค่าเงินรวม แยกตามหมวดหมู่
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-1">เปรียบเทียบจำนวนชิ้นที่เบิกใช้งาน กับมูลค่าต้นทุนจริงที่เบิกออกไป (คำนวณจาก FIFO)</p>
-                </div>
-                <div className="bg-slate-950 px-4 py-2 rounded-xl border border-slate-800 text-xs">
-                  <span className="text-slate-400">มูลค่าเบิกออกรวมทั้งหมด: </span>
-                  <strong className="text-amber-400 font-mono text-sm ml-1">{globalTotalOutboundCost.toLocaleString()} ฿</strong>
+                  <h4 className={`font-bold text-base flex items-center gap-1.5 ${outOfStockItems.length > 0 ? 'text-rose-400' : 'text-slate-400'}`}>🚨 สินค้าหมดเกลี้ยง</h4>
+                  <p className="text-slate-300 text-sm mt-1">ต้องสั่งเพิ่ม <strong className={`text-xl mx-1 ${outOfStockItems.length > 0 ? 'text-rose-400' : 'text-slate-400'}`}>{outOfStockItems.length}</strong> รายการ</p>
                 </div>
               </div>
+              <button onClick={() => { setLowStockModalType('OUT'); setIsLowStockModalOpen(true); }} className={`w-full py-2.5 rounded-xl text-sm font-bold transition flex justify-center items-center gap-2 border ${outOfStockItems.length > 0 ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/20' : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700'}`}>🔍 ดูรายการของหมด</button>
+            </div>
 
-              {categoryUsageCostData.length > 0 ? (
-                <>
-                  <div className="h-72 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={categoryUsageCostData} margin={{ top: 10, right: 30, left: 10, bottom: 20 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="categoryName" stroke="#94a3b8" fontSize={11} interval={0} angle={-10} textAnchor="end" />
-                        <YAxis yAxisId="left" stroke="#8b5cf6" fontSize={11} tickFormatter={(val) => `${val.toLocaleString()}฿`} />
-                        <YAxis yAxisId="right" orientation="right" stroke="#10b981" fontSize={11} />
-                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }} />
-                        <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: '12px', color: '#94a3b8' }} />
-                        <Bar yAxisId="left" dataKey="totalCost" name="มูลค่าต้นทุน (บาท)" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={24} />
-                        <Bar yAxisId="right" dataKey="totalQty" name="ปริมาณการเบิก (ชิ้น)" fill="#10b981" radius={[4, 4, 0, 0]} barSize={24} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  <div className="overflow-x-auto rounded-xl border border-slate-800">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-slate-950 text-slate-400 uppercase border-b border-slate-800">
-                          <th className="p-3.5">หมวดหมู่สินค้า</th>
-                          <th className="p-3.5 text-center">ปริมาณการเบิกใช้รวม</th>
-                          <th className="p-3.5 text-right">มูลค่าต้นทุนรวม (฿)</th>
-                          <th className="p-3.5 text-right">สัดส่วนค่าใช้จ่าย (%)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800 text-slate-300">
-                        {categoryUsageCostData.map((row, idx) => (
-                          <tr key={idx} className="hover:bg-slate-800/40 transition">
-                            <td className="p-3.5 font-semibold text-white flex items-center gap-2">
-                              <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0"></span>
-                              {row.categoryName}
-                            </td>
-                            <td className="p-3.5 text-center font-mono font-bold text-emerald-400">{row.totalQty.toLocaleString()} ชิ้น</td>
-                            <td className="p-3.5 text-right font-mono font-bold text-purple-400">{row.totalCost.toLocaleString()} ฿</td>
-                            <td className="p-3.5 text-right font-mono text-slate-400">
-                              <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-amber-300 font-bold">{row.percentageShare}%</span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              ) : (
-                <div className="p-12 text-center text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800">
-                  ยังไม่มีประวัติการเบิกออกในระบบ
+            <div className={`p-5 rounded-2xl flex flex-col justify-between gap-5 shadow-lg ${lowStockItems.length > 0 ? 'bg-amber-950/30 border border-amber-500/20 shadow-amber-900/20' : 'bg-slate-900/50 border border-slate-800/80'}`}>
+              <div className="flex items-center gap-4">
+                <div className={`p-3.5 rounded-xl shrink-0 border ${lowStockItems.length > 0 ? 'bg-amber-500/20 text-amber-400 border-amber-500/10' : 'bg-slate-800 text-slate-500 border-slate-700'}`}><AlertTriangle size={24} /></div>
+                <div>
+                  <h4 className={`font-bold text-base flex items-center gap-1.5 ${lowStockItems.length > 0 ? 'text-amber-400' : 'text-slate-400'}`}>⚠️ สินค้าใกล้หมด (1-5)</h4>
+                  <p className="text-slate-300 text-sm mt-1">สต็อกต่ำจำนวน <strong className={`text-xl mx-1 ${lowStockItems.length > 0 ? 'text-amber-400' : 'text-slate-400'}`}>{lowStockItems.length}</strong> รายการ</p>
                 </div>
+              </div>
+              <button onClick={() => { setLowStockModalType('LOW'); setIsLowStockModalOpen(true); }} className={`w-full py-2.5 rounded-xl text-sm font-bold transition flex justify-center items-center gap-2 border ${lowStockItems.length > 0 ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/20' : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700'}`}>🔍 ดูรายการใกล้หมด</button>
+            </div>
+
+            <div className={`p-5 rounded-2xl flex flex-col justify-between gap-5 shadow-lg md:col-span-2 lg:col-span-1 ${alerts.expiring?.length > 0 ? 'bg-blue-950/30 border border-blue-500/20 shadow-blue-900/20' : 'bg-slate-900/50 border border-slate-800/80'}`}>
+              <div className="flex items-center gap-4">
+                <div className={`p-3.5 rounded-xl shrink-0 border ${alerts.expiring?.length > 0 ? 'bg-blue-500/20 text-blue-400 border-blue-500/10' : 'bg-slate-800 text-slate-500 border-slate-700'}`}><Clock size={24} /></div>
+                <div>
+                  <h4 className={`font-bold text-base flex items-center gap-1.5 ${alerts.expiring?.length > 0 ? 'text-blue-400' : 'text-slate-400'}`}>⏱️ Lot ใกล้หมดอายุ</h4>
+                  <p className="text-slate-300 text-sm mt-1">เสี่ยงหมดอายุ <strong className={`text-xl mx-1 ${alerts.expiring?.length > 0 ? 'text-blue-400' : 'text-slate-400'}`}>{alerts.expiring?.length || 0}</strong> ล็อต</p>
+                </div>
+              </div>
+              <button onClick={() => setIsExpiringModalOpen(true)} disabled={!alerts.expiring || alerts.expiring.length === 0} className={`w-full py-2.5 rounded-xl text-sm font-bold transition flex justify-center items-center gap-2 border ${alerts.expiring?.length > 0 ? 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border-blue-500/20' : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed opacity-50'}`}>🔍 ดูรายการใกล้หมดอายุ</button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap justify-end gap-3">
+            <button onClick={() => setIsPrintModalOpen(true)} className="bg-slate-800 hover:bg-slate-700 text-emerald-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><Printer size={18} /> พิมพ์ป้าย QR Code</button>
+            <button onClick={fetchHistory} className="bg-slate-800 hover:bg-slate-700 text-blue-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><ClipboardList size={18} /> ประวัติรับ/เบิก</button>
+            <button onClick={() => { setBulkTxItems([{ productId: '', quantity: 1, unitCost: '', expireDate: '' }]); setBulkTxRef(''); setBulkTxRemark(''); setBulkTxEmployee(''); setBulkTxSupplier(''); setBulkTxType('IN'); setBulkTxDate(getTodayString()); setIsBulkTxModalOpen(true); }} className="bg-slate-800 hover:bg-slate-700 text-emerald-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><ArrowRightLeft size={18} /> จัดการสต็อก (รับ/เบิก)</button>
+            <button onClick={() => setIsCategoryModalOpen(true)} className="bg-slate-800 hover:bg-slate-700 text-amber-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><FolderPlus size={18} /> จัดการหมวดหมู่</button>
+            <button onClick={() => setIsAddModalOpen(true)} className="bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition shadow-lg shadow-amber-600/20"><Plus size={18} /> เพิ่มสินค้าใหม่</button>
+          </div>
+
+          <div className="flex items-center gap-2 bg-slate-900 p-2 rounded-2xl border border-slate-800 w-fit">
+            <button
+              onClick={() => setInventorySubTab('consumables')}
+              className={`px-5 py-2.5 rounded-xl font-bold text-sm transition flex items-center gap-2 ${
+                inventorySubTab === 'consumables' 
+                  ? 'bg-amber-600 text-white shadow-lg' 
+                  : 'text-slate-400 hover:text-white bg-slate-950/50'
+              }`}
+            >
+              <Wrench size={16} /> อะไหล่ / ใบมีด / ข้อต่อ / สกรู (ไม่มี S/N) ({consumableProducts.length})
+            </button>
+            <button
+              onClick={() => setInventorySubTab('machines_catalog')}
+              className={`px-5 py-2.5 rounded-xl font-bold text-sm transition flex items-center gap-2 ${
+                inventorySubTab === 'machines_catalog' 
+                  ? 'bg-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-400 hover:text-white bg-slate-950/50'
+              }`}
+            >
+              <Server size={16} /> เครื่องจักร / อุปกรณ์ (มี S/N) ({machineCatalogProducts.length})
+            </button>
+          </div>
+
+          <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl shadow-2xl">
+            <div className="p-5 border-b border-slate-800/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                {inventorySubTab === 'consumables' ? <Wrench className="text-amber-500" size={20} /> : <Server className="text-indigo-400" size={20} />} 
+                {inventorySubTab === 'consumables' ? 'รายการอะไหล่ สกรู ข้อต่อ ใบมีด (คุมด้วย Lot FIFO)' : 'รายการเครื่องจักรในแคตตาล็อก (อิง S/N อัตโนมัติ)'}
+              </h3>
+               
+              <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input 
+                    type="text" 
+                    placeholder="ค้นหาชื่อ, โมเดล, ประเภท..." 
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-8 py-2.5 text-sm text-white outline-none focus:border-amber-500 transition"
+                    value={inventorySearch}
+                    onChange={(e) => setInventorySearch(e.target.value)}
+                  />
+                  {inventorySearch && (
+                    <button 
+                      onClick={() => setInventorySearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="relative w-full sm:w-auto" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)} className="flex items-center justify-between gap-2 w-full sm:w-64 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none hover:border-amber-500 transition">
+                    <div className="flex items-center gap-2"><Filter size={16} className={selectedFilterCategories.length > 0 ? "text-amber-500" : "text-slate-400"} /><span>{selectedFilterCategories.length === 0 ? 'แสดงทุกหมวดหมู่' : `กรองอยู่ (${selectedFilterCategories.length} หมวดหมู่)`}</span></div><ChevronDown size={16} className="text-slate-400" />
+                  </button>
+                  {isFilterDropdownOpen && (
+                    <div className="absolute z-10 w-full mt-2 bg-slate-900 border border-slate-700 rounded-xl shadow-xl overflow-hidden right-0">
+                      <div className="p-2 border-b border-slate-800 bg-slate-950 flex flex-col gap-2 sticky top-0 z-20">
+                        <div className="flex items-center gap-2">
+                          <div className="relative flex-1">
+                            <input type="text" autoFocus placeholder="🔍 ค้นหาหมวดหมู่..." className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-3 pr-8 py-2 text-sm text-white outline-none focus:border-amber-500 transition" value={filterCategorySearch} onChange={(e) => setFilterCategorySearch(e.target.value)}/>
+                            {filterCategorySearch && (<button onClick={() => setFilterCategorySearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"><X size={14} /></button>)}
+                          </div>
+                          {selectedFilterCategories.length > 0 && (<button onClick={() => setSelectedFilterCategories([])} className="px-3 py-2 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg text-xs font-semibold transition whitespace-nowrap flex items-center gap-1"><Trash2 size={12} /> ล้างที่เลือก</button>)}
+                        </div>
+                      </div>
+                      <ul className="max-h-60 overflow-y-auto p-2 space-y-1">
+                        {displayedFilterCategories.map(cat => (
+                          <li key={cat.id}><label className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-800 cursor-pointer text-sm text-slate-300 transition-colors select-none"><input type="checkbox" className="accent-amber-500 w-4 h-4 cursor-pointer" checked={selectedFilterCategories.includes(cat.id)} onChange={() => toggleFilterCategory(cat.id)}/>{cat.categoryName}</label></li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-b-2xl">
+              <table className="w-full text-left border-collapse">
+                <thead><tr className="bg-slate-950/60 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-800"><th className="p-4 font-semibold">รหัส/ชื่อสินค้า</th><th className="p-4 font-semibold">หมวดหมู่</th><th className="p-4 font-semibold">สถานะ</th><th className="p-4 font-semibold text-right">ราคาขาย (฿)</th><th className="p-4 font-semibold text-center">คงเหลือ (Summary)</th><th className="p-4 font-semibold text-center">จัดการ</th></tr></thead>
+                <tbody className="divide-y divide-slate-800/50 text-sm">
+                  {loading ? (<tr><td colSpan={6} className="p-16 text-center text-slate-400">กำลังโหลด...</td></tr>) : displayProducts.length === 0 ? (<tr><td colSpan={6} className="p-16 text-center text-slate-400">ไม่พบข้อมูลสินค้าตรงตามเงื่อนไขที่ค้นหา</td></tr>) : (
+                    displayProducts.map((item) => {
+                      const category = safeCategories.find(c => c.id === item.categoryId);
+                      const currentStock = item.stockQty ?? 0;
+                      return (
+                        <tr key={item.productId} className="hover:bg-slate-800/40 transition">
+                          <td className="p-4 font-medium text-white flex items-center gap-3"><div className="p-2 bg-slate-800 rounded-lg text-amber-400"><Package size={18} /></div><div><div>{item.productName || 'ไม่มีชื่อ'}</div><div className="text-xs text-slate-500 font-mono mt-0.5">{item.productModelCode || 'ไม่มีรหัสรุ่น'}</div></div></td>
+                          <td className="p-4 text-slate-300"><span className="px-2.5 py-1 bg-slate-800/70 rounded-md text-xs border border-slate-700/50">{category?.categoryName || '-'}</span></td>
+                          <td className="p-4">{item.isPreorder ? <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">พรีออเดอร์</span> : <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">พร้อมส่ง</span>}</td>
+                          <td className="p-4 text-right font-semibold text-slate-200">{item.salePrice ? Number(item.salePrice).toLocaleString() : '0.00'} ฿</td>
+                          <td className="p-4 text-center"><span className={`px-3 py-1 rounded-full text-xs font-bold border inline-block min-w-[70px] ${currentStock > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>{currentStock} {item.unitName || 'ชิ้น'}</span></td>
+                          <td className="p-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button onClick={() => { setEditFormData(item); setIsEditModalOpen(true); }} className="p-2 bg-slate-800 hover:bg-amber-500/20 text-slate-300 hover:text-amber-400 rounded-lg transition"><Edit3 size={16} /></button>
+                              <button onClick={() => handleDeleteProduct(item.productId, item.productName || '')} className="p-2 bg-slate-800 hover:bg-rose-500/20 text-slate-300 hover:text-rose-400 rounded-lg transition"><Trash2 size={16} /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'machines' && (
+        <div className="space-y-6">
+          <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80">
+            <div className="relative w-full md:w-96">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <input type="text" placeholder="ค้นหา Serial Number, ชื่อรุ่น..." className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-white outline-none focus:border-indigo-500" value={machineSearch} onChange={(e) => setMachineSearch(e.target.value)} />
+            </div>
+            <button onClick={() => { 
+              setMachineFormData({ productId: sortedProducts[0]?.productId || 0, assetSerialNumber: '', assetQrCode: '', assetStatus: 'In_Stock', assetPurchaseCost: 0, assetPurchaseDate: '', assetWarrantyExpireDate: '', assetInstallDate: '', isInternalSn: false, supplierId: null, customerId: null }); 
+              setIsEditingMachine(false); 
+              setIsMachineModalOpen(true); 
+            }} className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition shadow-lg shadow-indigo-600/20 w-full md:w-auto justify-center">
+              <Plus size={18} /> ลงทะเบียนเครื่องใหม่
+            </button>
+          </div>
+
+          <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl overflow-hidden shadow-2xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-950/60 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-800">
+                    <th className="p-4 font-semibold whitespace-nowrap">Serial Number / QR</th>
+                    <th className="p-4 font-semibold whitespace-nowrap">ชื่อสินค้า / โมเดล</th>
+                    <th className="p-4 font-semibold whitespace-nowrap">สถานะปัจจุบัน</th>
+                    <th className="p-4 font-semibold whitespace-nowrap">ข้อมูลลูกค้า / ติดตั้ง</th>
+                    <th className="p-4 font-semibold whitespace-nowrap">ข้อมูล Supplier / รับเข้า</th>
+                    <th className="p-4 font-semibold whitespace-nowrap">ต้นทุน / ประกัน</th>
+                    <th className="p-4 font-semibold text-center whitespace-nowrap">จัดการ / ประวัติ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/50 text-sm">
+                  {loading ? (
+                    <tr><td colSpan={7} className="p-16 text-center text-slate-400">กำลังโหลด...</td></tr>
+                  ) : filteredMachines.length === 0 ? (
+                    <tr><td colSpan={7} className="p-16 text-center text-slate-400">ยังไม่มีข้อมูลเครื่องจักร</td></tr>
+                  ) : (
+                    filteredMachines.map((m) => {
+                      const boundCustomer = customers.find(c => c.customer_id === m.customerId) || m.customer;
+                      return (
+                        <tr key={m.assetId} className="hover:bg-slate-800/40 transition">
+                          <td className="p-4">
+                            <div className="font-bold text-indigo-400 font-mono flex items-center gap-2">
+                              {m.assetSerialNumber || <span className="text-slate-500 italic">ยังไม่ระบุ SN</span>}
+                              {m.isInternalSn && <span className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px] text-slate-400 border border-slate-700">Internal</span>}
+                            </div>
+                            {m.assetQrCode ? (<div className="text-xs text-slate-500 mt-1 font-mono">QR: {m.assetQrCode}</div>) : (<div className="text-xs text-slate-700 mt-1 font-mono italic">- ไม่มี QR -</div>)}
+                          </td>
+                          <td className="p-4 text-white">
+                            <div className="font-medium">{m.product?.productName || 'ไม่ทราบชื่อรุ่น'}</div>
+                            <div className="text-xs text-slate-500 font-mono mt-0.5">รุ่น: {m.product?.productModelCode || '-'}</div>
+                          </td>
+                          <td className="p-4">{getStatusBadge(m.assetStatus)}</td>
+                          <td className="p-4 text-xs">
+                            {boundCustomer ? (
+                              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 mb-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">
+                                <UserCheck size={12} />
+                                <span>{boundCustomer.customer_name}</span>
+                              </div>
+                            ) : m.customerId ? (
+                              <div className="inline-block px-2 py-1 mb-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">รหัสลูกค้า: {m.customerId}</div>
+                            ) : (
+                              <div className="text-slate-600 mb-1">- ไม่ระบุลูกค้า -</div>
+                            )}
+                            <div className="text-slate-400">ติดตั้ง: {m.assetInstallDate ? new Date(m.assetInstallDate).toLocaleDateString('th-TH') : '-'}</div>
+                          </td>
+                          <td className="p-4 text-xs">
+                            {m.supplierId ? (<div className="inline-block px-2 py-1 mb-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">รหัสผู้ผลิต: {m.supplierId}</div>) : (<div className="text-slate-600 mb-1">- ไม่ระบุ Supplier -</div>)}
+                            <div className="text-slate-400">รับเข้า: {m.assetPurchaseDate ? new Date(m.assetPurchaseDate).toLocaleDateString('th-TH') : '-'}</div>
+                          </td>
+                          <td className="p-4 text-xs font-mono text-slate-300">
+                            <div>ต้นทุน: {m.assetPurchaseCost ? Number(m.assetPurchaseCost).toLocaleString() : '0.00'} ฿</div>
+                            <div className="text-slate-500 mt-0.5">หมดประกัน: {m.assetWarrantyExpireDate ? new Date(m.assetWarrantyExpireDate).toLocaleDateString('th-TH') : '-'}</div>
+                          </td>
+                          <td className="p-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button onClick={() => { setSelectedMachineForLog(m); setIsMachineLogModalOpen(true); }} title="ประวัติการย้ายเครื่อง" className="p-2 bg-slate-800 hover:bg-blue-500/20 text-slate-300 hover:text-blue-400 rounded-lg transition"><History size={16} /></button>
+                              <button onClick={() => { setMachineFormData({...m, assetInstallDate: m.assetInstallDate ? new Date(m.assetInstallDate).toISOString().split('T')[0] : '', assetPurchaseDate: m.assetPurchaseDate ? new Date(m.assetPurchaseDate).toISOString().split('T')[0] : '', assetWarrantyExpireDate: m.assetWarrantyExpireDate ? new Date(m.assetWarrantyExpireDate).toISOString().split('T')[0] : ''}); setIsEditingMachine(true); setIsMachineModalOpen(true); }} title="แก้ไขเครื่อง" className="p-2 bg-slate-800 hover:bg-amber-500/20 text-slate-300 hover:text-amber-400 rounded-lg transition"><Edit3 size={16} /></button>
+                              <button onClick={() => handleDeleteMachine(m.assetId, m.assetSerialNumber)} title="ลบเครื่อง" className="p-2 bg-slate-800 hover:bg-rose-500/20 text-slate-300 hover:text-rose-400 rounded-lg transition"><Trash2 size={16} /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'analytics' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl shadow-xl">
+              <p className="text-slate-400 text-xs font-medium">มูลค่าสินค้าคงเหลือรวม</p>
+              <h3 className="text-2xl font-bold text-emerald-400 mt-1 font-mono">{valuationData?.totalValuation?.toLocaleString() || '0'} ฿</h3>
+            </div>
+            <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl shadow-xl">
+              <p className="text-slate-400 text-xs font-medium">จำนวน Lot Active ในคลัง</p>
+              <h3 className="text-2xl font-bold text-white mt-1 font-mono">{valuationData?.itemCount || 0} <span className="text-sm font-normal text-slate-400">Lot</span></h3>
+            </div>
+            <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl shadow-xl">
+              <p className="text-slate-400 text-xs font-medium">เครื่องจักรปล่อยเช่า (Rented)</p>
+              <h3 className="text-2xl font-bold text-blue-400 mt-1 font-mono">{machines.filter(m => m.assetStatus === 'Rented').length} <span className="text-sm font-normal text-slate-400">เครื่อง</span></h3>
+            </div>
+            <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl shadow-xl">
+              <p className="text-slate-400 text-xs font-medium">เครื่องจักรรอซ่อม (Maintenance)</p>
+              <h3 className="text-2xl font-bold text-amber-400 mt-1 font-mono">{machines.filter(m => m.assetStatus === 'Maintenance').length} <span className="text-sm font-normal text-slate-400">เครื่อง</span></h3>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+              <h3 className="font-bold text-base text-white flex items-center gap-2"><PieChartIcon className="text-indigo-400" size={18} /> สัดส่วนสถานะเครื่องจักร</h3>
+              {machineStatusChartData.length > 0 ? (
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={machineStatusChartData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={4} dataKey="value">
+                        {machineStatusChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }} formatter={(val: any) => [`${val} เครื่อง`, 'จำนวน']} />
+                      <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: '12px', color: '#94a3b8' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (<div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีข้อมูลสถานะเครื่องจักร</div>)}
+            </div>
+
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+              <h3 className="font-bold text-base text-white flex items-center gap-2">
+                <TrendingUp className="text-emerald-400" size={18} /> แนวโน้มการรับเข้า VS เบิกออก รายเดือน
+              </h3>
+              {stockMovementTrendData.length > 0 ? (
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={stockMovementTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorIn" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10B981" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                        </linearGradient>
+                        <linearGradient id="colorOut" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#F43F5E" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#F43F5E" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                      <XAxis dataKey="monthLabel" stroke="#94a3b8" fontSize={11} />
+                      <YAxis stroke="#64748b" fontSize={11} />
+                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }} />
+                      <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: '12px', color: '#94a3b8' }} />
+                      <Area type="monotone" dataKey="inQty" name="รับเข้า (IN)" stroke="#10B981" fillOpacity={1} fill="url(#colorIn)" />
+                      <Area type="monotone" dataKey="outQty" name="เบิกออก (OUT)" stroke="#F43F5E" fillOpacity={1} fill="url(#colorOut)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีประวัติการรับเข้า-เบิกออก</div>
               )}
             </div>
 
-            <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-6 shadow-2xl space-y-4">
-              <h3 className="font-bold text-lg text-white flex items-center gap-2"><BarChart3 className="text-purple-400" size={20} /> รายงานมูลค่าสินค้าคงเหลือตาม FIFO</h3>
-              <div className="overflow-x-auto rounded-xl border border-slate-800">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase">
-                      <th className="p-3.5">เลขล็อต / PO</th><th className="p-3.5">ชื่อสินค้า</th><th className="p-3.5">หมวดหมู่</th><th className="p-3.5 text-center">คงเหลือ</th><th className="p-3.5 text-right">ต้นทุน/หน่วย</th><th className="p-3.5 text-right">มูลค่ารวม (฿)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800 text-slate-300">
-                    {loadingValuation ? (<tr><td colSpan={6} className="p-8 text-center text-slate-500">กำลังคำนวณมูลค่าสต็อก...</td></tr>) : valuationData?.lots?.length > 0 ? (
-                      valuationData.lots.map((lot: any, idx: number) => (
-                        <tr key={idx} className="hover:bg-slate-800/30">
-                          <td className="p-3.5 font-mono text-indigo-400 font-bold">{lot.lotNumber}</td>
-                          <td className="p-3.5 text-white font-medium">{lot.productName}</td>
-                          <td className="p-3.5 text-slate-400">{lot.categoryName}</td>
-                          <td className="p-3.5 text-center font-bold text-emerald-400">{lot.remainingQty}</td>
-                          <td className="p-3.5 text-right font-mono">{lot.unitCost.toLocaleString()} ฿</td>
-                          <td className="p-3.5 text-right font-mono font-bold text-white">{lot.totalValue.toLocaleString()} ฿</td>
-                        </tr>
-                      ))
-                    ) : (<tr><td colSpan={6} className="p-8 text-center text-slate-500">ไม่พบข้อมูลมูลค่าสินค้าคงเหลือ</td></tr>)}
-                  </tbody>
-                </table>
-              </div>
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+              <h3 className="font-bold text-base text-white flex items-center gap-2"><BarChart3 className="text-emerald-400" size={18} /> Top 5 หมวดหมู่ที่มีมูลค่าสต็อกสูงสุด</h3>
+              {topCategoryChartData.length > 0 ? (
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart layout="vertical" data={topCategoryChartData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                      <XAxis type="number" stroke="#64748b" fontSize={11} tickFormatter={(val) => `${val.toLocaleString()}`} />
+                      <YAxis type="category" dataKey="category" stroke="#94a3b8" fontSize={12} width={70} />
+                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }} formatter={(val: any) => [`${val.toLocaleString()} ฿`, 'มูลค่ารวม']} />
+                      <Bar dataKey="value" fill="#10B981" radius={[0, 8, 8, 0]} barSize={20} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (<div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีข้อมูลมูลค่าหมวดหมู่</div>)}
+            </div>
+
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+              <h3 className="font-bold text-base text-white flex items-center gap-2"><TrendingDown className="text-rose-400" size={18} /> Top 5 สินค้าที่ถูกเบิกใช้งานเยอะที่สุด</h3>
+              {topOutboundProductsData.length > 0 ? (
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart layout="vertical" data={topOutboundProductsData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                      <XAxis type="number" stroke="#64748b" fontSize={11} />
+                      <YAxis type="category" dataKey="name" stroke="#94a3b8" fontSize={11} width={90} tickFormatter={(name) => name.length > 10 ? `${name.substring(0, 10)}...` : name} />
+                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }} formatter={(val: any) => [`${val} ชิ้น`, 'จำนวนเบิกออก']} />
+                      <Bar dataKey="quantity" fill="#F43F5E" radius={[0, 8, 8, 0]} barSize={20} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (<div className="h-64 flex items-center justify-center text-slate-500 text-sm">ยังไม่มีประวัติการเบิกออก</div>)}
             </div>
           </div>
-        )}
+
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <div>
+                <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                  <Coins className="text-amber-400" size={20} /> สรุปยอดการใช้งานและมูลค่าเงินรวม แยกตามหมวดหมู่
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">เปรียบเทียบจำนวนชิ้นที่เบิกใช้งาน กับมูลค่าต้นทุนจริงที่เบิกออกไป (คำนวณจาก FIFO)</p>
+              </div>
+              <div className="bg-slate-950 px-4 py-2 rounded-xl border border-slate-800 text-xs">
+                <span className="text-slate-400">มูลค่าเบิกออกรวมทั้งหมด: </span>
+                <strong className="text-amber-400 font-mono text-sm ml-1">{globalTotalOutboundCost.toLocaleString()} ฿</strong>
+              </div>
+            </div>
+
+            {categoryUsageCostData.length > 0 ? (
+              <>
+                <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={categoryUsageCostData} margin={{ top: 10, right: 30, left: 10, bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                      <XAxis dataKey="categoryName" stroke="#94a3b8" fontSize={11} interval={0} angle={-10} textAnchor="end" />
+                      <YAxis yAxisId="left" stroke="#8b5cf6" fontSize={11} tickFormatter={(val) => `${val.toLocaleString()}฿`} />
+                      <YAxis yAxisId="right" orientation="right" stroke="#10b981" fontSize={11} />
+                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }} />
+                      <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: '12px', color: '#94a3b8' }} />
+                      <Bar yAxisId="left" dataKey="totalCost" name="มูลค่าต้นทุน (บาท)" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={24} />
+                      <Bar yAxisId="right" dataKey="totalQty" name="ปริมาณการเบิก (ชิ้น)" fill="#10b981" radius={[4, 4, 0, 0]} barSize={24} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-800">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-950 text-slate-400 uppercase border-b border-slate-800">
+                        <th className="p-3.5">หมวดหมู่สินค้า</th>
+                        <th className="p-3.5 text-center">ปริมาณการเบิกใช้รวม</th>
+                        <th className="p-3.5 text-right">มูลค่าต้นทุนรวม (฿)</th>
+                        <th className="p-3.5 text-right">สัดส่วนค่าใช้จ่าย (%)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800 text-slate-300">
+                      {categoryUsageCostData.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-slate-800/40 transition">
+                          <td className="p-3.5 font-semibold text-white flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0"></span>
+                            {row.categoryName}
+                          </td>
+                          <td className="p-3.5 text-center font-mono font-bold text-emerald-400">{row.totalQty.toLocaleString()} ชิ้น</td>
+                          <td className="p-3.5 text-right font-mono font-bold text-purple-400">{row.totalCost.toLocaleString()} ฿</td>
+                          <td className="p-3.5 text-right font-mono text-slate-400">
+                            <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-amber-300 font-bold">{row.percentageShare}%</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <div className="p-12 text-center text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800">
+                ยังไม่มีประวัติการเบิกออกในระบบ
+              </div>
+            )}
+          </div>
+
+          <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-6 shadow-2xl space-y-4">
+            <h3 className="font-bold text-lg text-white flex items-center gap-2"><BarChart3 className="text-purple-400" size={20} /> รายงานมูลค่าสินค้าคงเหลือตาม FIFO</h3>
+            <div className="overflow-x-auto rounded-xl border border-slate-800">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase">
+                    <th className="p-3.5">เลขล็อต / PO</th><th className="p-3.5">ชื่อสินค้า</th><th className="p-3.5">หมวดหมู่</th><th className="p-3.5 text-center">คงเหลือ</th><th className="p-3.5 text-right">ต้นทุน/หน่วย</th><th className="p-3.5 text-right">มูลค่ารวม (฿)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800 text-slate-300">
+                  {loadingValuation ? (<tr><td colSpan={6} className="p-8 text-center text-slate-500">กำลังคำนวณมูลค่าสต็อก...</td></tr>) : valuationData?.lots?.length > 0 ? (
+                    valuationData.lots.map((lot: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-slate-800/30">
+                        <td className="p-3.5 font-mono text-indigo-400 font-bold">{lot.lotNumber}</td>
+                        <td className="p-3.5 text-white font-medium">{lot.productName}</td>
+                        <td className="p-3.5 text-slate-400">{lot.categoryName}</td>
+                        <td className="p-3.5 text-center font-bold text-emerald-400">{lot.remainingQty}</td>
+                        <td className="p-3.5 text-right font-mono">{lot.unitCost.toLocaleString()} ฿</td>
+                        <td className="p-3.5 text-right font-mono font-bold text-white">{lot.totalValue.toLocaleString()} ฿</td>
+                      </tr>
+                    ))
+                  ) : (<tr><td colSpan={6} className="p-8 text-center text-slate-500">ไม่พบข้อมูลมูลค่าสินค้าคงเหลือ</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       </div>
 
@@ -1372,7 +1376,7 @@ export default function MainInventorySystem() {
                     </button>
                   )}
                 </div>
-                
+                 
                 <div 
                   onClick={() => setIsCustomerDropdownOpen(!isCustomerDropdownOpen)}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white flex justify-between items-center cursor-pointer text-sm hover:border-blue-500 transition"
@@ -1836,7 +1840,6 @@ export default function MainInventorySystem() {
                         const newType = e.target.value;
                         setBulkTxType(newType);
                         setOpenTxDropdownIndex(null);
-                        // ถ้าสลับเป็นโหมดเบิกออก (OUT) ให้เคลียร์รายการที่เป็นน้ำยาทิ้งทันที ป้องกันค้าง
                         if (newType === 'OUT') {
                           setBulkTxItems(prev => prev.map(item => {
                             const prod = safeProducts.find(p => p.productId === item.productId);

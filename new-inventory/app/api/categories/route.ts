@@ -8,7 +8,10 @@ export async function POST(req: Request) {
     const body = await req.json();
     
     const newCategory = await prisma.productCategories.create({
-      data: { categoryName: body.categoryName }
+      data: { 
+        categoryName: body.categoryName,
+        requiresSerialNumber: body.requiresSerialNumber ?? true // บันทึกค่าสถานะ S/N ตามที่ส่งมา
+      }
     });
     
     return NextResponse.json({ success: true, category: newCategory });
