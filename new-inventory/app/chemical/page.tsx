@@ -120,39 +120,24 @@ export default function ChemicalSystemPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // แยกดึงข้อมูลลูกค้าตรงๆ เพื่อไม่ให้ติดขัดจาก API ตัวอื่น และป้องกันการแคชค่าเก่า
+      // ดึงข้อมูลลูกค้าและดัก Error แสดงผลตรงๆ
       try {
         const custRes = await fetch('/api/customers', { cache: 'no-store' });
-        if (custRes.ok) {
-          const custData = await custRes.json();
-          const list = Array.isArray(custData)
-            ? custData
-            : custData.customers || custData.data || [];
+        const custData = await custRes.json();
+        console.log('DEBUG /api/customers:', custData);
 
-          if (list.length > 0) {
-            setCustomers(list);
-          } else {
-            const { data: sbCusts } = await supabase
-              .from('customers')
-              .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
-              .order('customer_id', { ascending: true });
-            if (sbCusts) setCustomers(sbCusts);
-          }
+        if (Array.isArray(custData)) {
+          setCustomers(custData);
+        } else if (custData?.customers && Array.isArray(custData.customers)) {
+          setCustomers(custData.customers);
+        } else if (custData?.data && Array.isArray(custData.data)) {
+          setCustomers(custData.data);
         } else {
-          // Fallback กรณี API ตอบกลับสถานะไม่ใช่ 200 OK
-          const { data: sbCusts } = await supabase
-            .from('customers')
-            .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
-            .order('customer_id', { ascending: true });
-          if (sbCusts) setCustomers(sbCusts);
+          // ถ้าโครงสร้างไม่ตรง ให้แจ้งเตือนขึ้นมาดูเลยว่า API ส่งอะไรมา
+          alert('โครงสร้าง API ลูกค้าไม่ตรง: ' + JSON.stringify(custData).slice(0, 200));
         }
-      } catch (e) {
-        console.error('Customer fetch failed, falling back to Supabase:', e);
-        const { data: sbCusts } = await supabase
-          .from('customers')
-          .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
-          .order('customer_id', { ascending: true });
-        if (sbCusts) setCustomers(sbCusts);
+      } catch (e: any) {
+        alert('ดึง API ลูกค้าพัง: ' + e.message);
       }
 
       // ดึงข้อมูลสินค้าและประวัติ
