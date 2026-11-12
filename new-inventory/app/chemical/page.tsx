@@ -139,21 +139,29 @@ export default function ChemicalSystemPage() {
         }
       }
 
-      // ดึงข้อมูลลูกค้าจาก API /api/customers ที่คุณมีอยู่
+      // ดึงข้อมูลลูกค้าผ่าน API /api/customers และรองรับทุกรูปแบบโครงสร้าง JSON
       if (custRes) {
         const custData = await custRes.json();
-        if (custData.success && custData.customers) {
+        if (Array.isArray(custData)) {
+          setCustomers(custData);
+        } else if (custData.success && Array.isArray(custData.customers)) {
           setCustomers(custData.customers);
+        } else if (custData.success && Array.isArray(custData.data)) {
+          setCustomers(custData.data);
+        } else if (Array.isArray(custData.data)) {
+          setCustomers(custData.data);
         }
       }
 
-      // ถ้าดึงผ่าน API ไม่สำเร็จ ให้ดึงตรงจาก Supabase เผื่อไว้
+      // Fallback: ถ้า API ยังดึงข้อมูลไม่ได้ ให้ดึงตรงจาก Supabase เผื่อไว้
       if (customers.length === 0) {
         const { data: sbCusts } = await supabase
           .from('customers')
           .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
           .order('customer_id', { ascending: true });
-        if (sbCusts) setCustomers(sbCusts);
+        if (sbCusts && sbCusts.length > 0) {
+          setCustomers(sbCusts);
+        }
       }
 
       if (txRes) {
@@ -668,7 +676,7 @@ export default function ChemicalSystemPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
                   <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
-                    4. เลือกร้านค้า / ลูกค้าผู้รับน้ำยา *
+                    4. เลือกร้านค้า / ลูกค้าผู้รับน้ำยา * ({customers.length} รายการ)
                   </label>
                   <select
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
@@ -687,7 +695,7 @@ export default function ChemicalSystemPage() {
                   </select>
                   {customers.length === 0 && (
                     <p className="text-[11px] text-amber-400 mt-1">
-                      * กำลังโหลดรายชื่อลูกค้าจาก API...
+                      * กำลังโหลดรายชื่อลูกค้า...
                     </p>
                   )}
                 </div>
