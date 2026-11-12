@@ -53,7 +53,7 @@ interface Customer {
 }
 
 interface Employee {
-  employeeId: number;
+  employeeId?: number;
   id?: number;
   firstName?: string;
   lastName?: string;
@@ -99,7 +99,7 @@ export default function ChemicalSystemPage() {
   const [deliveryRef, setDeliveryRef] = useState<string>('');
   const [deliveryRemark, setDeliveryRemark] = useState<string>('');
 
-  // Searchable Customer Dropdown State (รูปแบบเดียวกับหน้าเครื่องจักร)
+  // Searchable Customer Dropdown State
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const customerDropdownRef = useRef<HTMLDivElement>(null);
@@ -112,7 +112,6 @@ export default function ChemicalSystemPage() {
   // Filter State for History
   const [historySearch, setHistorySearch] = useState<string>('');
 
-  // ปิด Dropdown อัตโนมัติเมื่อคลิกพื้นที่ด้านนอก
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -175,7 +174,7 @@ export default function ChemicalSystemPage() {
           if (sbCusts) setCustomers(sbCusts);
         }
       } catch (e) {
-        console.error('Customer fetch failed, falling back to Supabase:', e);
+        console.error('Customer fetch failed:', e);
         const { data: sbCusts } = await supabase
           .from('customers')
           .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
@@ -217,7 +216,6 @@ export default function ChemicalSystemPage() {
     setLoading(false);
   };
 
-  // กรองรายชื่อลูกค้าตามคำค้นหา (รหัส, ชื่อร้าน, บริษัท, ผู้ติดต่อ, เบอร์โทร)
   const filteredCustomers = customers.filter((c) => {
     if (!customerSearchTerm.trim()) return true;
     const q = customerSearchTerm.toLowerCase().trim();
@@ -301,7 +299,7 @@ export default function ChemicalSystemPage() {
       (emp) => (emp.employeeId ?? emp.id) === Number(selectedEmployeeId)
     );
     const empName = selectedEmp
-      ? `${selectedEmp.firstName || emp.name || ''} ${selectedEmp.lastName || ''}`.trim()
+      ? `${selectedEmp.firstName || selectedEmp.name || ''} ${selectedEmp.lastName || ''}`.trim()
       : `ID: ${selectedEmployeeId}`;
 
     const defaultDesc = isDilutionProcess
@@ -616,9 +614,9 @@ export default function ChemicalSystemPage() {
                   <option value="" disabled>
                     -- กรุณาเลือกพนักงานผู้เบิกจากรายชื่อ --
                   </option>
-                  {employees.map((emp, idx) => {
-                    const empId = emp.employeeId ?? emp.id ?? idx + 1;
-                    const empName = `${emp.firstName || emp.name || ''} ${emp.lastName || ''}`.trim() || `พนักงาน #${empId}`;
+                  {employees.map((empItem: any, idx: number) => {
+                    const empId = empItem.employeeId ?? empItem.id ?? idx + 1;
+                    const empName = `${empItem.firstName || empItem.name || ''} ${empItem.lastName || ''}`.trim() || `พนักงาน #${empId}`;
                     return (
                       <option key={empId} value={empId}>
                         #{empId} {empName}
