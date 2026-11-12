@@ -37,15 +37,12 @@ interface Product {
 }
 
 interface Customer {
-  customer_id?: number;
-  id?: number;
-  customerId?: number;
-  customer_name?: string;
-  name?: string;
-  companyName?: string;
-  customer_taxname?: string | null;
-  customer_contact_name?: string | null;
-  customer_number?: string | null;
+  customer_id: number;
+  customer_name: string;
+  customer_taxname: string | null;
+  customer_contact_name: string | null;
+  customer_number: string | null;
+  customer_status?: string | null;
 }
 
 interface Employee {
@@ -123,11 +120,10 @@ export default function ChemicalSystemPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [prodRes, custRes, txRes, empRes] = await Promise.all([
+      const [prodRes, custRes, txRes] = await Promise.all([
         fetch('/api/products').catch(() => null),
         fetch('/api/customers').catch(() => null),
         fetch('/api/transactions').catch(() => null),
-        fetch('/api/employees').catch(() => null),
       ]);
 
       if (prodRes) {
@@ -143,21 +139,22 @@ export default function ChemicalSystemPage() {
         }
       }
 
-      let loadedCustomers: Customer[] = [];
+      // ดึงข้อมูลลูกค้าจาก API /api/customers ที่คุณมีอยู่
       if (custRes) {
         const custData = await custRes.json();
-        if (custData.success && (custData.customers || custData.data)) {
-          loadedCustomers = custData.customers || custData.data;
+        if (custData.success && custData.customers) {
+          setCustomers(custData.customers);
         }
       }
 
-      if (loadedCustomers.length === 0) {
-        const { data: sbCusts } = await supabase.from('customers').select('*');
-        if (sbCusts && sbCusts.length > 0) {
-          loadedCustomers = sbCusts;
-        }
+      // ถ้าดึงผ่าน API ไม่สำเร็จ ให้ดึงตรงจาก Supabase เผื่อไว้
+      if (customers.length === 0) {
+        const { data: sbCusts } = await supabase
+          .from('customers')
+          .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
+          .order('customer_id', { ascending: true });
+        if (sbCusts) setCustomers(sbCusts);
       }
-      setCustomers(loadedCustomers);
 
       if (txRes) {
         const txData = await txRes.json();
@@ -166,21 +163,9 @@ export default function ChemicalSystemPage() {
         }
       }
 
-      let loadedEmployees: Employee[] = [];
-      if (empRes) {
-        const empData = await empRes.json();
-        if (empData.success && empData.employees) {
-          loadedEmployees = empData.employees;
-        }
-      }
-
-      if (loadedEmployees.length === 0) {
-        const { data: sbEmps } = await supabase.from('employees').select('*');
-        if (sbEmps && sbEmps.length > 0) {
-          loadedEmployees = sbEmps;
-        }
-      }
-      setEmployees(loadedEmployees);
+      // ดึงข้อมูลพนักงาน
+      const { data: sbEmps } = await supabase.from('employees').select('*');
+      if (sbEmps) setEmployees(sbEmps);
 
     } catch (error) {
       console.error('Error fetching chemical system data:', error);
@@ -543,11 +528,6 @@ export default function ChemicalSystemPage() {
                     );
                   })}
                 </select>
-                {employees.length === 0 && (
-                  <p className="text-[11px] text-amber-400 mt-1">
-                    * ไม่พบรายชื่อพนักงานในระบบ (กรุณาตรวจสอบตารางพนักงานใน Supabase)
-                  </p>
-                )}
               </div>
 
               {/* 4. หมายเหตุบันทึกคลัง */}
@@ -699,19 +679,15 @@ export default function ChemicalSystemPage() {
                     <option value="" disabled>
                       -- เลือกลูกค้า --
                     </option>
-                    {customers.map((c, index) => {
-                      const cId = c.customer_id ?? c.id ?? c.customerId ?? index + 1;
-                      const cName = c.customer_name ?? c.name ?? c.companyName ?? `ลูกค้า #${cId}`;
-                      return (
-                        <option key={cId} value={cId}>
-                          #{cId} - {cName} {c.customer_taxname ? `(${c.customer_taxname})` : ''}
-                        </option>
-                      );
-                    })}
+                    {customers.map((c) => (
+                      <option key={c.customer_id} value={c.customer_id}>
+                        #{c.customer_id} - {c.customer_name} {c.customer_taxname ? `(${c.customer_taxname})` : ''}
+                      </option>
+                    ))}
                   </select>
                   {customers.length === 0 && (
                     <p className="text-[11px] text-amber-400 mt-1">
-                      * ไม่พบรายชื่อลูกค้า (กรุณาตรวจสอบตาราง customers ใน Supabase)
+                      * กำลังโหลดรายชื่อลูกค้าจาก API...
                     </p>
                   )}
                 </div>
