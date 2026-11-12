@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { productId, quantity, customerId, referenceNo, remark, employeeId } = body;
+    const { productId, quantity, customerId, referenceNo, remark, employeeId, photoUrl } = body;
 
     // 1. ตรวจสอบข้อมูลเบื้องต้น
     if (!productId || !quantity || Number(quantity) <= 0) {
@@ -99,7 +99,9 @@ export async function POST(request: Request) {
         throw new Error('ไม่พบข้อมูลลูกค้าในระบบ');
       }
 
-      const finalRemark = `[ลูกค้า: ${customer.customerName}] ${remark || 'เปิดบิลจัดส่งน้ำยา'}`.trim();
+      // แนบลิงก์รูปภาพต่อท้ายหมายเหตุด้วยตัวคั่น |PHOTO: เพื่อดึงไปแสดงปุ่มดูรูปในตาราง
+      const photoTag = photoUrl ? ` |PHOTO:${photoUrl}` : '';
+      const finalRemark = `[ลูกค้า: ${customer.customerName}] ${remark || 'เปิดบิลจัดส่งน้ำยา'}${photoTag}`.trim();
 
       // 5. บันทึกประวัติลง InventoryTransactions
       const transaction = await tx.inventoryTransactions.create({

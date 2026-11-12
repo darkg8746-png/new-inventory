@@ -1,8 +1,28 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ArrowLeft, RefreshCw, FlaskConical, Truck, CheckCircle2, AlertTriangle, Database, Layers, History, Search } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
+import {
+  ArrowLeft,
+  RefreshCw,
+  FlaskConical,
+  Truck,
+  CheckCircle2,
+  AlertTriangle,
+  Database,
+  Layers,
+  History,
+  Search,
+  Camera,
+  Image as ImageIcon,
+  X,
+  ExternalLink,
+} from 'lucide-react';
 import Link from 'next/link';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface Product {
   productId: number;
@@ -56,17 +76,20 @@ export default function ChemicalSystemPage() {
   const [deliveryRef, setDeliveryRef] = useState<string>('');
   const [deliveryRemark, setDeliveryRemark] = useState<string>('');
 
+  // Photo State สำหรับ Sub-tab B
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [viewingPhotoUrl, setViewingPhotoUrl] = useState<string | null>(null);
+
   // Filter State for History
   const [historySearch, setHistorySearch] = useState<string>('');
 
-  // ฟังก์ชันช่วยเช็กว่าเป็น "น้ำยาผสมแล้ว" หรือไม่ (อิงจากชื่อสินค้าและโมเดลที่คุณตั้งไว้)
   const isMixedChemical = (p: Product) => {
     const name = (p.productName || '').toLowerCase();
     const model = (p.productModelCode || '').toLowerCase();
     return name.includes('ผสม') || model.includes('(mix)');
   };
 
-  // ฟังก์ชันช่วยเช็กว่าเป็นสินค้ากลุ่มน้ำยาเคมีภัณฑ์ทั้งหมด
   const isAnyChemical = (p: Product) => {
     const name = (p.productName || '').toLowerCase();
     return (
@@ -88,7 +111,7 @@ export default function ChemicalSystemPage() {
       const [prodRes, custRes, txRes] = await Promise.all([
         fetch('/api/products').catch(() => null),
         fetch('/api/customers').catch(() => null),
-        fetch('/api/transactions').catch(() => null)
+        fetch('/api/transactions').catch(() => null),
       ]);
 
       if (prodRes) {
@@ -97,7 +120,6 @@ export default function ChemicalSystemPage() {
           const allProds: Product[] = prodData.products || [];
           setProducts(allProds);
 
-          // เลือกหัวเชื้อตัวแรกเป็นค่าเริ่มต้นใน Sub-tab A
           const firstConcentrate = allProds.find((p) => isAnyChemical(p) && !isMixedChemical(p));
           if (firstConcentrate && !selectedSourceId) {
             setSelectedSourceId(firstConcentrate.productId);
@@ -124,13 +146,59 @@ export default function ChemicalSystemPage() {
     setLoading(false);
   };
 
-  // แยกกลุ่มสินค้าชัดเจน: หัวเชื้อ vs น้ำยาผสมแล้ว
   const allChemicals = products.filter(isAnyChemical);
   const concentrateProducts = allChemicals.filter((p) => !isMixedChemical(p));
   const mixedProducts = allChemicals.filter((p) => isMixedChemical(p));
-
-  // รายการที่จะแสดงใน Dropdown ของ Sub-tab B ตามตัวเลือกที่ติ๊ก
   const currentDeliveryOptions = deliveryType === 'MIXED' ? mixedProducts : concentrateProducts;
+
+  // ย่อขนาดรูปภาพก่อนอัปโหลดเพื่อให้เร็วและประหยัดพื้นที่
+  const compressImage = (file: File): Promise<Blob> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new window.Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => {
+              resolve(blob || file);
+            },
+            'image/jpeg',
+            0.8
+          );
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoFile(file);
+    const objectUrl = URL.createObjectURL(file);
+    setPhotoPreview(objectUrl);
+  };
+
+  const clearPhoto = () => {
+    setPhotoFile(null);
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoPreview(null);
+  };
 
   // Sub-tab A: บันทึกการผสมน้ำยากลาง
   const handleMixingSubmit = async (e: React.FormEvent) => {
@@ -147,8 +215,8 @@ export default function ChemicalSystemPage() {
           transactionType: isDilutionProcess ? 'MIXING' : 'OUT',
           referenceNo: `BATCH-${Math.floor(100000 + Math.random() * 900000)}`,
           remark: batchRemark || (isDilutionProcess ? 'เบิกผสมน้ำยาคลังกลาง' : 'เบิกน้ำยาสำเร็จรูปโดยไม่ผ่านกระบวนการผสม'),
-          items: [{ productId: Number(selectedSourceId), quantity: Number(batchQty) }]
-        })
+          items: [{ productId: Number(selectedSourceId), quantity: Number(batchQty) }],
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -165,18 +233,44 @@ export default function ChemicalSystemPage() {
     setIsSubmitting(false);
   };
 
-  // Sub-tab B: บันทึกเปิดบิลจัดส่งน้ำยาให้ลูกค้า
+  // Sub-tab B: บันทึกเปิดบิลจัดส่งน้ำยาให้ลูกค้า + อัปโหลดรูปภาพ
   const handleDeliverySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deliveryProductId) return alert('กรุณาเลือกผลิตภัณฑ์น้ำยาที่ต้องการจัดส่ง');
     if (deliveryQty <= 0) return alert('กรุณาระบุจำนวนมากกว่า 0');
     if (!selectedCustomerId) return alert('กรุณาเลือกร้านค้าลูกค้าผู้รับน้ำยา');
 
-    const typePrefix = deliveryType === 'MIXED' ? '[น้ำยาผสมแล้ว]' : '[หัวเชื้อ]';
-    const combinedRemark = `${typePrefix} ${deliveryRemark}`.trim();
-
     setIsSubmitting(true);
+    let uploadedPhotoUrl: string | null = null;
+
     try {
+      // 1. ถ้ามีการถ่ายรูป/เลือกรูป ให้อัปโหลดขึ้น Supabase Storage ก่อน
+      if (photoFile) {
+        const compressedBlob = await compressImage(photoFile);
+        const fileName = `delivery-${Date.now()}-${Math.floor(Math.random() * 1000)}.jpg`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('delivery-photos')
+          .upload(fileName, compressedBlob, {
+            contentType: 'image/jpeg',
+            upsert: false,
+          });
+
+        if (uploadError) {
+          throw new Error(`อัปโหลดรูปภาพไม่สำเร็จ: ${uploadError.message} (กรุณาเช็กว่าสร้าง Bucket ชื่อ delivery-photos ใน Supabase แล้ว)`);
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from('delivery-photos')
+          .getPublicUrl(fileName);
+
+        uploadedPhotoUrl = publicUrlData.publicUrl;
+      }
+
+      // 2. ส่งข้อมูลเปิดบิลและลิงก์รูปภาพไปที่ API
+      const typePrefix = deliveryType === 'MIXED' ? '[น้ำยาผสมแล้ว]' : '[หัวเชื้อ]';
+      const combinedRemark = `${typePrefix} ${deliveryRemark}`.trim();
+
       const res = await fetch('/api/chemical/delivery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -186,7 +280,8 @@ export default function ChemicalSystemPage() {
           customerId: Number(selectedCustomerId),
           referenceNo: deliveryRef,
           remark: combinedRemark,
-        })
+          photoUrl: uploadedPhotoUrl,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -194,17 +289,27 @@ export default function ChemicalSystemPage() {
         setDeliveryRef('');
         setDeliveryRemark('');
         setDeliveryQty(1);
+        clearPhoto();
         fetchData();
       } else {
         alert(`❌ เกิดข้อผิดพลาด: ${data.error}`);
       }
-    } catch (err) {
-      alert('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
+    } catch (err: any) {
+      alert(`❌ ${err.message || 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'}`);
     }
     setIsSubmitting(false);
   };
 
-  // กรองประวัติการทำรายการเฉพาะที่เกี่ยวกับน้ำยาเคมีภัณฑ์
+  // แยกข้อความหมายเหตุและลิงก์รูปภาพออกจากกัน
+  const parseRemarkAndPhoto = (rawRemark: string | null) => {
+    if (!rawRemark) return { text: '-', photoUrl: null };
+    const parts = rawRemark.split('|PHOTO:');
+    return {
+      text: parts[0].trim() || '-',
+      photoUrl: parts[1] ? parts[1].trim() : null,
+    };
+  };
+
   const chemicalHistory = transactions.filter((tx) => {
     const pName = (tx.product?.productName || '').toLowerCase();
     const isChem =
@@ -232,7 +337,6 @@ export default function ChemicalSystemPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans relative">
       <div className="max-w-6xl mx-auto space-y-6">
-
         {/* Header Bar */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-900/80 p-5 rounded-2xl border border-slate-800 shadow-xl">
           <div className="flex items-center gap-3">
@@ -288,7 +392,7 @@ export default function ChemicalSystemPage() {
             <strong className="text-white font-bold block mb-0.5">หลักการทำงานของระบบน้ำยา:</strong>
             {activeTab === 'mixing'
               ? 'เบิกหัวเชื้อน้ำยาออกจากคลังโดย ไม่ต้องระบุชื่อร้านค้าลูกค้า ระบบจะตัดสต็อกหัวเชื้อบริสุทธิ์ (OUT) และคำนวณอัตราส่วนเพื่อเพิ่มสต็อกน้ำยาผสมสำเร็จเข้าคลัง (IN) ให้อัตโนมัติพร้อมคำนวณเฉลี่ยต้นทุนต่อถัง'
-              : 'เลือกประเภทน้ำยา (น้ำยาผสมแล้ว หรือ หัวเชื้อ) จากนั้นเลือกรายการและร้านค้าลูกค้าปลายทาง ระบบจะตัดสต็อกแบบ FIFO อัตโนมัติพร้อมแยกบันทึกประวัติชัดเจน'}
+              : 'เลือกประเภทน้ำยา (น้ำยาผสมแล้ว หรือ หัวเชื้อ) เลือกรายการ ร้านค้าลูกค้า และสามารถถ่ายรูปหน้างาน/ใบเซ็นรับแนบไปกับบิลได้ทันที'}
           </div>
         </div>
 
@@ -495,6 +599,7 @@ export default function ChemicalSystemPage() {
                 </div>
               </div>
 
+              {/* 4. หมายเหตุการจัดส่ง */}
               <div>
                 <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">6. หมายเหตุการจัดส่ง</label>
                 <input
@@ -506,18 +611,68 @@ export default function ChemicalSystemPage() {
                 />
               </div>
 
+              {/* 5. ถ่ายรูป / แนบหลักฐานการจัดส่ง */}
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <label className="block text-xs md:text-sm text-slate-300 font-bold flex items-center gap-2">
+                  <Camera className="text-emerald-400" size={18} /> 7. ถ่ายรูปหลักฐานการจัดส่ง (ไม่บังคับ)
+                </label>
+
+                {!photoPreview ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* ปุ่มเปิดกล้องถ่ายรูปโดยตรง (เหมาะกับมือถือหน้างาน) */}
+                    <label className="flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl cursor-pointer transition text-sm font-bold">
+                      <Camera size={18} /> ถ่ายรูปทันที (เปิดกล้อง)
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={handlePhotoChange}
+                      />
+                    </label>
+
+                    {/* ปุ่มเลือกรูปจากอัลบั้ม/คอมพิวเตอร์ */}
+                    <label className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl cursor-pointer transition text-sm font-medium">
+                      <ImageIcon size={18} /> เลือกรูปจากเครื่อง
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handlePhotoChange}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="relative inline-block">
+                    <img
+                      src={photoPreview}
+                      alt="ตัวอย่างรูปหลักฐานจัดส่ง"
+                      className="max-h-56 rounded-xl border border-emerald-500/40 object-cover shadow-lg"
+                    />
+                    <button
+                      type="button"
+                      onClick={clearPhoto}
+                      className="absolute -top-2.5 -right-2.5 p-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-full shadow-md transition"
+                      title="ลบรูปภาพ"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <button
                 type="submit"
                 disabled={isSubmitting}
                 className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-sm transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
               >
-                {isSubmitting ? 'กำลังบันทึก...' : <><CheckCircle2 size={18} /> ยืนยันเปิดบิลจัดส่ง & ตัดสต็อก FIFO</>}
+                {isSubmitting ? 'กำลังอัปโหลดและบันทึกข้อมูล...' : <><CheckCircle2 size={18} /> ยืนยันเปิดบิลจัดส่ง & ตัดสต็อก FIFO</>}
               </button>
             </form>
           </div>
         )}
 
-        {/* Live Stock Monitor Summary (แยกแสดง หัวเชื้อ vs น้ำยาผสมแล้ว ชัดเจน) */}
+        {/* Live Stock Monitor Summary */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-6">
           <div className="flex justify-between items-center">
             <h3 className="font-bold text-base text-white flex items-center gap-2">
@@ -530,7 +685,6 @@ export default function ChemicalSystemPage() {
             <div className="py-8 text-center text-slate-500 text-sm">กำลังโหลดข้อมูลสต็อก...</div>
           ) : (
             <div className="space-y-5">
-              {/* กลุ่มที่ 1: สต็อกน้ำยาผสมแล้ว */}
               <div>
                 <div className="text-xs font-bold text-emerald-400 mb-2.5 flex items-center gap-1.5">
                   🧪 สต็อกน้ำยาผสมแล้ว (พร้อมจัดส่งลูกค้า)
@@ -548,7 +702,6 @@ export default function ChemicalSystemPage() {
                 </div>
               </div>
 
-              {/* กลุ่มที่ 2: สต็อกหัวเชื้อ */}
               <div>
                 <div className="text-xs font-bold text-amber-400 mb-2.5 flex items-center gap-1.5">
                   💧 สต็อกหัวเชื้อตั้งต้น (Pure)
@@ -596,20 +749,23 @@ export default function ChemicalSystemPage() {
                   <th className="p-3.5">ประเภท / รายการน้ำยา</th>
                   <th className="p-3.5 text-center">จำนวน</th>
                   <th className="p-3.5">รายละเอียด / ลูกค้า</th>
+                  <th className="p-3.5 text-center">หลักฐานรูป</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 text-slate-300">
                 {loading ? (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-slate-500">กำลังโหลดประวัติ...</td>
+                    <td colSpan={6} className="p-8 text-center text-slate-500">กำลังโหลดประวัติ...</td>
                   </tr>
                 ) : chemicalHistory.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-slate-500">ยังไม่มีประวัติการทำรายการน้ำยา</td>
+                    <td colSpan={6} className="p-8 text-center text-slate-500">ยังไม่มีประวัติการทำรายการน้ำยา</td>
                   </tr>
                 ) : (
                   chemicalHistory.slice(0, 15).map((tx) => {
                     const isMixed = tx.product ? isMixedChemical(tx.product) : false;
+                    const { text: cleanRemark, photoUrl } = parseRemarkAndPhoto(tx.remark);
+
                     return (
                       <tr key={tx.transactionId} className="hover:bg-slate-800/40 transition">
                         <td className="p-3.5 font-mono text-slate-400 whitespace-nowrap">
@@ -635,8 +791,19 @@ export default function ChemicalSystemPage() {
                             {tx.transactionType === 'IN' ? '+' : '-'}{tx.quantity}
                           </span>
                         </td>
-                        <td className="p-3.5 text-slate-400">
-                          {tx.remark || '-'}
+                        <td className="p-3.5 text-slate-400">{cleanRemark}</td>
+                        <td className="p-3.5 text-center">
+                          {photoUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => setViewingPhotoUrl(photoUrl)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-[11px] font-bold transition"
+                            >
+                              <Camera size={13} /> ดูรูป
+                            </button>
+                          ) : (
+                            <span className="text-slate-600">-</span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -646,8 +813,49 @@ export default function ChemicalSystemPage() {
             </table>
           </div>
         </div>
-
       </div>
+
+      {/* Modal แสดงรูปภาพหลักฐานการจัดส่ง */}
+      {viewingPhotoUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setViewingPhotoUrl(null)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl p-4 max-w-2xl w-full space-y-3 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center border-b border-slate-800 pb-2.5">
+              <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                <Camera className="text-emerald-400" size={16} /> รูปภาพหลักฐานการจัดส่ง
+              </h4>
+              <div className="flex items-center gap-2">
+                <a
+                  href={viewingPhotoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-indigo-400 hover:underline flex items-center gap-1"
+                >
+                  เปิดแท็บใหม่ <ExternalLink size={12} />
+                </a>
+                <button
+                  onClick={() => setViewingPhotoUrl(null)}
+                  className="p-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="flex justify-center bg-slate-950 rounded-xl p-2">
+              <img
+                src={viewingPhotoUrl}
+                alt="หลักฐานการจัดส่ง"
+                className="max-h-[70vh] rounded-lg object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
