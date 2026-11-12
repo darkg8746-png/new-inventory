@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://udkicadlthssizksdbaz.supabase.co';
-// ✅ ใส่ Anon Key จริงเป็นค่า Fallback สำรอง
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_8OoWzZFM3caJMLA8dNT3BQ_2VtkTrqA';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -20,7 +19,12 @@ export async function GET() {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, customers: customers || [] });
+    // ส่งโครงสร้างที่รองรับทั้ง customers และ data เพื่อความชัวร์
+    return NextResponse.json({ 
+      success: true, 
+      customers: customers || [],
+      data: customers || [] 
+    });
   } catch (err: any) {
     console.error('Server Catch Error:', err);
     return NextResponse.json({ success: false, error: err?.message || 'Internal Server Error' }, { status: 500 });
