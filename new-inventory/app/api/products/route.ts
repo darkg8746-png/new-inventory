@@ -4,11 +4,18 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 // ==========================================
-// 📥 1. ฟังก์ชัน GET: ดึงสินค้า และนับสต็อกตามเครื่อง S/N (In_Stock) อัตโนมัติ
+// 📥 1. ฟังก์ชัน GET: ดึงสินค้า แยกนับสต็อกตามประเภท (S/N vs Lot FIFO)
 // ==========================================
 export async function GET() {
   try {
     const productsFromDb = await prisma.productsCatalog.findMany({
+      include: {
+        category: true,
+        lots: {
+          where: { lotStatus: 'Active' },
+          select: { remainingQty: true }
+        }
+      },
       orderBy: { productId: 'desc' },
     });
 
@@ -18,17 +25,31 @@ export async function GET() {
       select: { productId: true }
     });
 
-    // ผูกนับจำนวนเครื่อง S/N เป็นสต็อกของสินค้านั้นๆ
     const products = productsFromDb.map(p => {
-      const realStock = machines.filter(m => m.productId === p.productId).length;
+      // เช็กว่าหมวดหมู่นี้ใช้ S/N หรือไม่ (ถ้าเป็น false คือกลุ่มอะไหล่/น้ำยา)
+      const isNoSn = p.category?.requiresSerialNumber === false;
+
+      let realStock = 0;
+      if (isNoSn) {
+        // กลุ่มไม่มี S/N: นับผลรวมจาก Lot ที่เหลืออยู่ (ถ้าไม่มี Lot ให้ใช้ค่า stockQty ในตารางหลัก)
+        const lotSum = p.lots.reduce((sum, lot) => sum + Number(lot.remainingQty || 0), 0);
+        realStock = lotSum > 0 ? lotSum : Number(p.stockQty ?? 0);
+      } else {
+        // กลุ่มมี S/N: นับจากจำนวนเครื่อง In_Stock ในตาราง machinesAssets
+        realStock = machines.filter(m => m.productId === p.productId).length;
+      }
+
       return {
         ...p,
-        stockQty: realStock // ซิงค์ตรงกับจำนวนเครื่อง S/N
+        stockQty: realStock
       };
     });
 
     const categories = await prisma.productCategories.findMany();
-    return NextResponse.json({ success: true, products, categories });
+    return NextResponse.json(
+      { success: true, products, categories },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
@@ -60,7 +81,7 @@ export async function POST(req: Request) {
 }
 
 // ==========================================
-// ✍️ 3. ฟังก์ชัน PUT: แก้ไขรายละเอียดสินค้า (ไม่กวนสต็อก เพราะสต็อกอิงตาม S/N)
+// ✍️ 3. ฟังก์ชัน PUT: แก้ไขรายละเอียดสินค้า
 // ==========================================
 export async function PUT(req: Request) {
   try {
