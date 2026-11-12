@@ -12,14 +12,14 @@ datasource db {
 // 1. product_categories (ตารางประเภท/หมวดหมู่สินค้า)[cite: 10]
 // -----------------------------------------------------------------------------
 model ProductCategories {
-  id           Int               @id @default(autoincrement()) @map("category_id")
-  categoryName String            @map("category_name")
-  
+  id                   Int       @id @default(autoincrement()) @map("category_id")
+  categoryName         String    @map("category_name")
+  requiresSerialNumber Boolean?  @default(true) @map("requires_serial_number") // <--- เพิ่มบรรทัดนี้เข้ามาครับ
+
   products     ProductsCatalog[] 
 
   @@map("product_categories")
 }
-
 // -----------------------------------------------------------------------------
 // 2. products_catalog (ตารางสินค้าและแคตตาล็อก)[cite: 10]
 // -----------------------------------------------------------------------------
