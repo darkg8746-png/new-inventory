@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma'; // ตรวจสอบ path ของ prisma client ในโปรเจกต์ของคุณ
+import { prisma } from '@/lib/prisma';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { productId, quantity, customerId, referenceNo, remark } = body;
+    const { productId, quantity, customerId, referenceNo, remark, employeeId } = body;
 
     // 1. ตรวจสอบข้อมูลเบื้องต้น
-    if (!productId || !quantity || quantity <= 0) {
+    if (!productId || !quantity || Number(quantity) <= 0) {
       return NextResponse.json(
         { success: false, error: 'กรุณาระบุสินค้าและจำนวนที่ถูกต้อง' },
         { status: 400 }
@@ -21,11 +21,15 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. ใช้ Transaction ของ Prisma เพื่อความปลอดภัยของข้อมูล (ตัดสต็อก + บันทึกบิลพร้อมกัน)
+    const qtyNum = Number(quantity);
+    const prodIdNum = Number(productId);
+    const custIdNum = Number(customerId);
+
+    // 2. ใช้ Transaction ของ Prisma เพื่อความปลอดภัยของข้อมูล
     const result = await prisma.$transaction(async (tx) => {
-      // ดึงข้อมูลสินค้าและตรวจสอบสต็อกปัจจุบัน
-      const product = await tx.product.findUnique({
-        where: { productId: Number(productId) },
+      // ดึงข้อมูลสินค้าจาก ProductsCatalog
+      const product = await tx.productsCatalog.findUnique({
+        where: { productId: prodIdNum },
       });
 
       if (!product) {
@@ -33,77 +37,126 @@ export async function POST(request: Request) {
       }
 
       const currentStock = product.stockQty ?? 0;
-      if (currentStock < Number(quantity)) {
+      if (currentStock < qtyNum) {
         throw new Error(`สต็อกน้ำยาไม่เพียงพอ (คงเหลือในคลัง: ${currentStock} ${product.unitName || 'ถัง'})`);
       }
 
-      // 3. ดึง Lot สินค้าที่ยังมีของเหลือ เรียงตามวันรับเข้า/หมดอายุ (FIFO)
-      const activeLots = await tx.inventoryLot.findMany({
+      // 3. ดึง Lot สินค้าจาก ProductLots ที่ยังมีของเหลือ เรียงตาม FIFO
+      const activeLots = await tx.productLots.findMany({
         where: {
-          productId: Number(productId),
+          productId: prodIdNum,
           remainingQty: { gt: 0 },
+          lotStatus: 'Active',
         },
         orderBy: [
-          { expireDate: 'asc' }, // หมดอายุก่อนออกก่อน
-          { createdAt: 'asc' },  // รับเข้าก่อนออกก่อน
+          { expireDate: 'asc' },
+          { receiveDate: 'asc' },
         ],
       });
 
-      let qtyToDeduct = Number(quantity);
-      const lotUsageRecords = [];
+      let qtyToDeduct = qtyNum;
+      let totalCostApplied = 0;
+      const lotUsageRecords: { lotId: number; quantityUsed: number; costApplied: number }[] = [];
 
       // วนลูปตัดสต็อกทีละ Lot
       for (const lot of activeLots) {
         if (qtyToDeduct <= 0) break;
 
         const deductFromThisLot = Math.min(lot.remainingQty, qtyToDeduct);
+        const newRemaining = lot.remainingQty - deductFromThisLot;
+        const unitCost = lot.unitCost || product.unitCost || 0;
 
-        // อัปเดตยอดคงเหลือใน Lot
-        await tx.inventoryLot.update({
+        // อัปเดตยอดคงเหลือใน ProductLots
+        await tx.productLots.update({
           where: { lotId: lot.lotId },
-          data: { remainingQty: lot.remainingQty - deductFromThisLot },
+          data: {
+            remainingQty: newRemaining,
+            lotStatus: newRemaining === 0 ? 'Depleted' : 'Active',
+          },
         });
 
         lotUsageRecords.push({
           lotId: lot.lotId,
           quantityUsed: deductFromThisLot,
-          costApplied: lot.unitCost || product.unitCost || 0,
+          costApplied: unitCost,
         });
 
+        totalCostApplied += deductFromThisLot * unitCost;
         qtyToDeduct -= deductFromThisLot;
       }
 
       // 4. สร้างเลขที่ใบส่งของอัตโนมัติ (กรณีไม่ได้กรอกมา)
-      const finalRefNo = referenceNo?.trim() || `DO-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const finalRefNo =
+        referenceNo?.trim() ||
+        `DO-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      // ดึงชื่อลูกค้ามาใส่ในหมายเหตุเพื่อให้ง่ายต่อการดูประวัติ
-      const customer = await tx.customer.findUnique({
-        where: { customer_id: Number(customerId) }
+      // ดึงข้อมูลลูกค้าจาก Customers
+      const customer = await tx.customers.findUnique({
+        where: { customerId: custIdNum },
       });
-      const customerLabel = customer ? `[ลูกค้า: ${customer.customer_name}]` : `[รหัสลูกค้า: #${customerId}]`;
-      const finalRemark = `${customerLabel} ${remark || 'เปิดบิลจัดส่งน้ำยา'}`.trim();
 
-      // 5. บันทึก Transaction (OUT)
-      const transaction = await tx.transaction.create({
+      if (!customer) {
+        throw new Error('ไม่พบข้อมูลลูกค้าในระบบ');
+      }
+
+      const finalRemark = `[ลูกค้า: ${customer.customerName}] ${remark || 'เปิดบิลจัดส่งน้ำยา'}`.trim();
+
+      // 5. บันทึกประวัติลง InventoryTransactions
+      const transaction = await tx.inventoryTransactions.create({
         data: {
-          productId: Number(productId),
+          productId: prodIdNum,
           transactionType: 'OUT',
-          quantity: Number(quantity),
+          quantity: qtyNum,
           transactionDate: new Date(),
+          transactionUnitCost: qtyNum > 0 ? totalCostApplied / qtyNum : (product.unitCost || 0),
           referenceNo: finalRefNo,
           remark: finalRemark,
-          // ผูกรายละเอียดการตัด Lot (ถ้ามีใน Schema)
-          lotDetails: lotUsageRecords.length > 0 ? {
-            create: lotUsageRecords
-          } : undefined
+          employeeId: employeeId ? Number(employeeId) : null,
+          lotDetails:
+            lotUsageRecords.length > 0
+              ? {
+                  create: lotUsageRecords,
+                }
+              : undefined,
         },
       });
 
-      // 6. ตัดยอดสต็อกรวมในตาราง Product
-      await tx.product.update({
-        where: { productId: Number(productId) },
+      // 6. บันทึกลงตาราง ConsumableOrders (ถ้ามีพนักงานในระบบอย่างน้อย 1 คนเพื่อผูก employeeId)
+      const defaultEmployee = employeeId
+        ? await tx.employees.findUnique({ where: { employeeId: Number(employeeId) } })
+        : await tx.employees.findFirst();
+
+      if (defaultEmployee) {
+        const salePrice = product.salePrice || 0;
+        await tx.consumableOrders.create({
+          data: {
+            orderNo: finalRefNo,
+            customerId: custIdNum,
+            employeeId: defaultEmployee.employeeId,
+            orderDate: new Date(),
+            orderDeliveryDate: new Date(),
+            orderTotalCost: totalCostApplied,
+            orderTotalPrice: salePrice * qtyNum,
+            orderStatus: 'Delivered',
+            orderItems: {
+              create: [
+                {
+                  productId: prodIdNum,
+                  orderItemQty: qtyNum,
+                  orderItemUnitCost: qtyNum > 0 ? totalCostApplied / qtyNum : (product.unitCost || 0),
+                  orderItemSalePrice: salePrice,
+                },
+              ],
+            },
+          },
+        });
+      }
+
+      // 7. ตัดยอดสต็อกรวมใน ProductsCatalog
+      await tx.productsCatalog.update({
+        where: { productId: prodIdNum },
         data: {
-          stockQty: currentStock - Number(quantity),
+          stockQty: currentStock - qtyNum,
         },
       });
 
@@ -115,7 +168,6 @@ export async function POST(request: Request) {
       message: `เปิดบิลจัดส่งเลขที่ ${result.finalRefNo} และตัดสต็อกเรียบร้อยแล้ว`,
       data: result.transaction,
     });
-
   } catch (error: any) {
     console.error('Delivery API Error:', error);
     return NextResponse.json(
