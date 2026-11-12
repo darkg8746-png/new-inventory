@@ -50,6 +50,7 @@ interface Customer {
 
 interface Employee {
   employeeId: number;
+  id?: number;
   firstName?: string;
   lastName?: string;
   name?: string;
@@ -122,7 +123,6 @@ export default function ChemicalSystemPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. ดึงข้อมูลสินค้าและประวัติผ่าน API ปกติ
       const [prodRes, custRes, txRes, empRes] = await Promise.all([
         fetch('/api/products').catch(() => null),
         fetch('/api/customers').catch(() => null),
@@ -143,7 +143,6 @@ export default function ChemicalSystemPage() {
         }
       }
 
-      // ดึงข้อมูลลูกค้า (ลองจาก API ก่อน ถ้าไม่ได้ผล ให้ดึงตรงจาก Supabase)
       let loadedCustomers: Customer[] = [];
       if (custRes) {
         const custData = await custRes.json();
@@ -167,7 +166,6 @@ export default function ChemicalSystemPage() {
         }
       }
 
-      // ดึงข้อมูลพนักงาน (ลองจาก API ก่อน ถ้าไม่ได้ผล ให้ดึงจาก Supabase)
       let loadedEmployees: Employee[] = [];
       if (empRes) {
         const empData = await empRes.json();
@@ -250,7 +248,7 @@ export default function ChemicalSystemPage() {
     if (!selectedEmployeeId) return alert('กรุณาเลือกพนักงานผู้เบิกจากรายการ');
 
     const selectedEmp = employees.find(
-      (emp) => (emp.employeeId || emp.id) === Number(selectedEmployeeId)
+      (emp) => (emp.employeeId ?? emp.id) === Number(selectedEmployeeId)
     );
     const empName = selectedEmp
       ? `${selectedEmp.firstName || selectedEmp.name || ''} ${selectedEmp.lastName || ''}`.trim()
