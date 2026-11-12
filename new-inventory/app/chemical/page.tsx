@@ -22,6 +22,7 @@ import {
   Building2,
   User,
   Phone,
+  ArrowRight,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -85,6 +86,10 @@ export default function ChemicalSystemPage() {
   const [isDilutionProcess, setIsDilutionProcess] = useState<boolean>(true);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | ''>('');
   const [batchRemark, setBatchRemark] = useState<string>('');
+
+  // อัตราส่วนการผสม: 1 ถังหัวเชื้อ = 2 ถังผสม
+  const MIXING_RATIO = 2;
+  const expectedMixedYield = batchQty > 0 ? batchQty * MIXING_RATIO : 0;
 
   // Form State: Sub-tab B (Delivery Order)
   const [deliveryType, setDeliveryType] = useState<'MIXED' | 'CONCENTRATE'>('MIXED');
@@ -296,11 +301,11 @@ export default function ChemicalSystemPage() {
       (emp) => (emp.employeeId ?? emp.id) === Number(selectedEmployeeId)
     );
     const empName = selectedEmp
-      ? `${selectedEmp.firstName || selectedEmp.name || ''} ${selectedEmp.lastName || ''}`.trim()
+      ? `${selectedEmp.firstName || emp.name || ''} ${selectedEmp.lastName || ''}`.trim()
       : `ID: ${selectedEmployeeId}`;
 
     const defaultDesc = isDilutionProcess
-      ? 'เบิกผสมน้ำยาคลังกลาง'
+      ? `เบิกผสมน้ำยาคลังกลาง (หัวเชื้อ ${batchQty} ถัง ➔ น้ำยาผสม ${expectedMixedYield} ถัง)`
       : 'เบิกน้ำยาสำเร็จรูปโดยไม่ผ่านกระบวนการผสม';
     const combinedRemark = `[ผู้เบิก: ${empName}] ${batchRemark.trim() || defaultDesc}`;
 
@@ -314,12 +319,23 @@ export default function ChemicalSystemPage() {
           referenceNo: `BATCH-${Math.floor(100000 + Math.random() * 900000)}`,
           employeeId: Number(selectedEmployeeId),
           remark: combinedRemark,
-          items: [{ productId: Number(selectedSourceId), quantity: Number(batchQty) }],
+          mixingRatio: isDilutionProcess ? MIXING_RATIO : 1,
+          items: [
+            {
+              productId: Number(selectedSourceId),
+              quantity: Number(batchQty),
+              yieldQty: isDilutionProcess ? Number(expectedMixedYield) : 0,
+            },
+          ],
         }),
       });
       const data = await res.json();
       if (data.success) {
-        alert('✅ บันทึกการตัดสต็อกหัวเชื้อและเพิ่มสต็อกน้ำยาผสมสำเร็จเรียบร้อยแล้ว');
+        alert(
+          isDilutionProcess
+            ? `✅ บันทึกสำเร็จ!\n- ตัดสต็อกหัวเชื้อ: ${batchQty} ถัง\n- เพิ่มสต็อกน้ำยาผสม: ${expectedMixedYield} ถัง (สูตร 1:2)`
+            : '✅ บันทึกการเบิกหัวเชื้อเรียบร้อยแล้ว'
+        );
         setBatchRemark('');
         setBatchQty(1);
         setSelectedEmployeeId('');
@@ -452,7 +468,7 @@ export default function ChemicalSystemPage() {
                 <FlaskConical className="text-indigo-400" size={26} /> ระบบจัดการน้ำยาเคมีภัณฑ์ & ผสมสารละลาย
               </h1>
               <p className="text-slate-400 text-xs md:text-sm mt-0.5">
-                ควบคุมสต็อกน้ำยา จัดการรอบการผสม และตัดสต็อกตามหน้างานจริง
+                ควบคุมสต็อกน้ำยา จัดการรอบการผสม (<span className="text-amber-400 font-bold">1 ถังหัวเชื้อ = 2 ถังผสม</span>) และตัดสต็อกตามหน้างานจริง
               </p>
             </div>
           </div>
@@ -496,7 +512,7 @@ export default function ChemicalSystemPage() {
           <div>
             <strong className="text-white font-bold block mb-0.5">หลักการทำงานของระบบน้ำยา:</strong>
             {activeTab === 'mixing'
-              ? 'เบิกหัวเชื้อน้ำยาออกจากคลังโดย ไม่ต้องระบุชื่อร้านค้าลูกค้า ระบบจะตัดสต็อกหัวเชื้อบริสุทธิ์ (OUT) และคำนวณอัตราส่วนเพื่อเพิ่มสต็อกน้ำยาผสมสำเร็จเข้าคลัง (IN) ให้อัตโนมัติพร้อมคำนวณเฉลี่ยต้นทุนต่อถัง'
+              ? 'เบิกหัวเชื้อน้ำยาออกจากคลังโดย ไม่ต้องระบุชื่อร้านค้าลูกค้า ระบบจะตัดสต็อกหัวเชื้อบริสุทธิ์ (OUT) 1 ส่วน และเพิ่มสต็อกน้ำยาผสมสำเร็จเข้าคลัง (IN) 2 ส่วน (อัตราส่วน 1 ถังหัวเชื้อ = 2 ถังผสม) ให้อัตโนมัติพร้อมคำนวณเฉลี่ยต้นทุนต่อถัง'
               : 'เลือกประเภทน้ำยา (น้ำยาผสมแล้ว หรือ หัวเชื้อ) เลือกรายการ ร้านค้าลูกค้า และสามารถถ่ายรูปหน้างาน/ใบเซ็นรับแนบไปกับบิลได้ทันที'}
           </div>
         </div>
@@ -504,9 +520,14 @@ export default function ChemicalSystemPage() {
         {/* Form Section */}
         {activeTab === 'mixing' ? (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl space-y-6">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-4">
-              <FlaskConical className="text-indigo-400" size={20} /> ฟอร์มเบิกหัวเชื้อเพื่อผสมน้ำยากลาง
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-4">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <FlaskConical className="text-indigo-400" size={20} /> ฟอร์มเบิกหัวเชื้อเพื่อผสมน้ำยากลาง
+              </h2>
+              <span className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-bold">
+                อัตราส่วนมาตรฐาน: 1 ถังหัวเชื้อ = 2 ถังผสม
+              </span>
+            </div>
 
             <form onSubmit={handleMixingSubmit} className="space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -533,7 +554,7 @@ export default function ChemicalSystemPage() {
 
                 <div>
                   <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
-                    2. จำนวนหัวเชื้อที่เบิก (แกลลอน) *
+                    2. จำนวนหัวเชื้อที่เบิก (ถัง / แกลลอน) *
                   </label>
                   <input
                     type="number"
@@ -554,14 +575,29 @@ export default function ChemicalSystemPage() {
                     onChange={(e) => setIsDilutionProcess(e.target.checked)}
                   />
                   <span className="text-sm font-bold text-white">
-                    ทำการผสมน้ำยา ณ คลังกลาง (Dilution Process)
+                    ทำการผสมน้ำยา ณ คลังกลาง (Dilution Process — อัตราส่วน 1 : 2)
                   </span>
                 </label>
 
-                {!isDilutionProcess && (
+                {isDilutionProcess ? (
+                  <div className="bg-indigo-950/30 border border-indigo-500/30 rounded-xl p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div className="text-xs text-slate-300">
+                      สรุปยอดการแปลงสต็อกอัตโนมัติ (1 ถังหัวเชื้อ ➔ 2 ถังผสม):
+                    </div>
+                    <div className="flex items-center gap-3 font-mono text-sm">
+                      <span className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-lg font-bold">
+                        ตัดหัวเชื้อ -{batchQty || 0} ถัง
+                      </span>
+                      <ArrowRight size={16} className="text-slate-400" />
+                      <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg font-bold">
+                        ได้น้ำยาผสม +{expectedMixedYield} ถัง
+                      </span>
+                    </div>
+                  </div>
+                ) : (
                   <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-300 flex items-center gap-2">
                     <AlertTriangle size={16} className="shrink-0" />
-                    <span>เบิกน้ำยาออกไปเตรียมไว้โดย ไม่ผ่านกระบวนการผสมน้ำ</span>
+                    <span>เบิกน้ำยาออกไปเตรียมไว้โดย ไม่ผ่านกระบวนการผสมน้ำ (ตัดหัวเชื้อออกอย่างเดียว)</span>
                   </div>
                 )}
               </div>
@@ -613,9 +649,13 @@ export default function ChemicalSystemPage() {
               >
                 {isSubmitting ? (
                   'กำลังบันทึก...'
+                ) : isDilutionProcess ? (
+                  <>
+                    <CheckCircle2 size={18} /> ยืนยันผสมน้ำยา (ตัดหัวเชื้อ {batchQty || 0} ถัง ➔ เพิ่มน้ำยาผสม {expectedMixedYield} ถัง)
+                  </>
                 ) : (
                   <>
-                    <CheckCircle2 size={18} /> บันทึกตัดสต็อกหัวเชื้อ & เพิ่มสต็อกน้ำยาผสม
+                    <CheckCircle2 size={18} /> บันทึกตัดสต็อกหัวเชื้อ ({batchQty || 0} ถัง)
                   </>
                 )}
               </button>

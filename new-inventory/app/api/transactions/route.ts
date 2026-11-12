@@ -12,15 +12,15 @@ export async function GET() {
       orderBy: { transactionDate: 'desc' },
       include: {
         product: true,
-        lotDetails: { 
+        lotDetails: {
           include: {
-            lot: true
-          }
-        }
+            lot: true,
+          },
+        },
       },
       take: 100,
     });
-    
+
     return NextResponse.json({ success: true, transactions });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -28,157 +28,334 @@ export async function GET() {
 }
 
 // ==========================================
-// 📤 2. ฟังก์ชัน POST: รับเข้า / เบิกออก
+// 📤 2. ฟังก์ชัน POST: รับเข้า / เบิกออก / ผสมน้ำยา (1:2)
 // ==========================================
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { transactionType, referenceNo, remark, employeeId, supplierId, items } = body;
+    const {
+      transactionType,
+      referenceNo,
+      remark,
+      employeeId,
+      supplierId,
+      transactionDate,
+      items,
+    } = body;
 
-    const result = await prisma.$transaction(async (tx) => {
-      let mainTxIds = [];
+    const txDateObj = transactionDate ? new Date(transactionDate) : new Date();
 
-      for (const item of items) {
-        const { productId, quantity, unitCost = 0, expireDate = null } = item;
-        const qtyToProcess = Number(quantity);
-        
-        // ดึงข้อมูลสินค้าเพื่อเช็กว่าเป็นสินค้าประเภทไหน (เช่น มีคำว่า ไส้กรอง หรือเป็นอะไหล่ หรือเช็กจาก categoryId)
-        const productInfo = await tx.productsCatalog.findUnique({
-          where: { productId: Number(productId) },
-          include: { category: true }
-        });
+    const result = await prisma.$transaction(
+      async (tx) => {
+        let mainTxIds = [];
 
-        // 1. สร้างหัวบิลประวัติ
-        const newTx = await tx.inventoryTransactions.create({
-          data: {
-            productId: Number(productId),
-            employeeId: employeeId ? Number(employeeId) : null,
-            transactionType,
-            quantity: qtyToProcess,
-            referenceNo: referenceNo || null,
-            supplierId: supplierId && transactionType === 'IN' ? Number(supplierId) : null,
-            remark: remark || null,
-          }
-        });
-        
-        mainTxIds.push(newTx.transactionId);
+        for (const item of items) {
+          const {
+            productId,
+            quantity,
+            unitCost = 0,
+            expireDate = null,
+            yieldQty,
+          } = item;
+          const qtyToProcess = Number(quantity);
 
-        if (transactionType === 'IN') {
-          // --- กรณีรับเข้า (IN): สร้าง Lot ใหม่ ---
-          const newLot = await tx.productLots.create({
-            data: {
-              productId: Number(productId),
-              lotNumber: referenceNo || `LOT-${Date.now()}`,
-              unitCost: Number(unitCost),
-              originalQty: qtyToProcess,
-              remainingQty: qtyToProcess,
-              expireDate: expireDate ? new Date(expireDate) : null,
-            }
-          });
-
-          await tx.transactionLotDetails.create({
-            data: {
-              transactionId: newTx.transactionId,
-              lotId: newLot.lotId,
-              quantityUsed: qtyToProcess,
-              costApplied: Number(unitCost),
-            }
-          });
-
-          // 🌟 1. อัปเดตบวกยอดสต็อกรวมในตารางสินค้าหลัก 🌟
-          await tx.productsCatalog.update({
+          // ดึงข้อมูลสินค้า
+          const productInfo = await tx.productsCatalog.findUnique({
             where: { productId: Number(productId) },
-            data: { stockQty: { increment: qtyToProcess } }
+            include: { category: true },
           });
 
-          // 🌟 2. เงื่อนไขสร้างทะเบียนเครื่องจักรเฉพาะสินค้าที่เป็นเครื่อง (ตัวอย่าง: หมวดหมู่หรือชื่อไม่ใช่ไส้กรอง/อะไหล่) 🌟
-          // ป้องกันไม่ให้อะไหล่สิ้นเปลือง (เช่น ไส้กรอง) ไปวิ่งสร้าง MachinesAssets ทีละ 30-50 ชิ้นจน Transaction พัง
-          const productName = (productInfo?.productName || '').toLowerCase();
-          const categoryName = (productInfo?.category?.categoryName || '').toLowerCase();
-          
-          const isSparePart = productName.includes('ไส้กรอง') || 
-                              productName.includes('โอริง') || 
-                              productName.includes('สายยาง') || 
-                              productName.includes('ข้อต่อ') || 
-                              categoryName.includes('อะไหล่') ||
-                              categoryName.includes('สิ้นเปลือง');
-
-          if (!isSparePart) {
-            // ถ้าไม่ใช่ ให้ออกแบบสร้างทะเบียน S/N ทีละเครื่องแบบปลอดภัยด้วย createMany แทนการวนลูป await
-            const assetDataList = [];
-            for (let i = 0; i < qtyToProcess; i++) {
-              assetDataList.push({
-                productId: Number(productId),
-                assetSerialNumber: `SN-${Date.now()}-${i}`,
-                assetStatus: 'In_Stock',
-                assetPurchaseCost: Number(unitCost),
-                assetPurchaseDate: new Date(),
-                supplierId: supplierId ? Number(supplierId) : null,
-                isInternalSn: true,
-              });
-            }
-            if (assetDataList.length > 0) {
-              await tx.machinesAssets.createMany({
-                data: assetDataList,
-                skipDuplicates: true
-              });
-            }
+          if (!productInfo) {
+            throw new Error(`ไม่พบข้อมูลสินค้า ID ${productId} ในระบบ`);
           }
 
-        } else if (transactionType === 'OUT') {
-          // --- กรณีเบิกออก (OUT): ตัดสต็อกแบบ FIFO ---
-          let qtyNeeded = qtyToProcess;
-          
-          const availableLots = await tx.productLots.findMany({
-            where: { 
+          // 1. สร้างหัวบิลประวัติหลัก (สำหรับ MIXING จะบันทึกเป็น OUT ของหัวเชื้อ)
+          const mainTxType = transactionType === 'MIXING' ? 'OUT' : transactionType;
+
+          const newTx = await tx.inventoryTransactions.create({
+            data: {
               productId: Number(productId),
-              remainingQty: { gt: 0 },
-              lotStatus: 'Active'
+              employeeId: employeeId ? Number(employeeId) : null,
+              transactionType: mainTxType,
+              quantity: qtyToProcess,
+              transactionDate: txDateObj,
+              referenceNo: referenceNo || null,
+              supplierId: supplierId && transactionType === 'IN' ? Number(supplierId) : null,
+              remark: remark || null,
             },
-            orderBy: { receiveDate: 'asc' }
           });
 
-          for (const lot of availableLots) {
-            if (qtyNeeded <= 0) break;
+          mainTxIds.push(newTx.transactionId);
 
-            const takeQty = Math.min(qtyNeeded, lot.remainingQty);
-            qtyNeeded -= takeQty;
-
-            const newRemainingQty = lot.remainingQty - takeQty;
-            await tx.productLots.update({
-              where: { lotId: lot.lotId },
-              data: { 
-                remainingQty: newRemainingQty,
-                lotStatus: newRemainingQty === 0 ? 'Depleted' : 'Active'
-              }
+          if (transactionType === 'IN') {
+            // --- กรณีรับเข้า (IN): สร้าง Lot ใหม่ ---
+            const newLot = await tx.productLots.create({
+              data: {
+                productId: Number(productId),
+                lotNumber: referenceNo || `LOT-${Date.now()}`,
+                unitCost: Number(unitCost),
+                originalQty: qtyToProcess,
+                remainingQty: qtyToProcess,
+                receiveDate: txDateObj,
+                expireDate: expireDate ? new Date(expireDate) : null,
+              },
             });
 
             await tx.transactionLotDetails.create({
               data: {
                 transactionId: newTx.transactionId,
-                lotId: lot.lotId,
-                quantityUsed: takeQty,
-                costApplied: lot.unitCost,
+                lotId: newLot.lotId,
+                quantityUsed: qtyToProcess,
+                costApplied: Number(unitCost),
+              },
+            });
+
+            // อัปเดตบวกยอดสต็อกรวมในตารางสินค้าหลัก
+            await tx.productsCatalog.update({
+              where: { productId: Number(productId) },
+              data: { stockQty: { increment: qtyToProcess } },
+            });
+
+            // ป้องกันไม่ให้อะไหล่สิ้นเปลือง และ กลุ่มน้ำยาเคมี ไปสร้าง MachinesAssets
+            const productName = (productInfo?.productName || '').toLowerCase();
+            const categoryName = (productInfo?.category?.categoryName || '').toLowerCase();
+            const catId = Number(productInfo?.categoryId);
+
+            const isNonMachineItem =
+              catId === 5 ||
+              catId === 107 ||
+              productInfo?.category?.requiresSerialNumber === false ||
+              productName.includes('ไส้กรอง') ||
+              productName.includes('โอริง') ||
+              productName.includes('สายยาง') ||
+              productName.includes('ข้อต่อ') ||
+              productName.includes('น้ำยา') ||
+              productName.includes('หัวเชื้อ') ||
+              productName.includes('แกลลอน') ||
+              productName.includes('ใบมีด') ||
+              categoryName.includes('อะไหล่') ||
+              categoryName.includes('สิ้นเปลือง') ||
+              categoryName.includes('น้ำยา');
+
+            if (!isNonMachineItem) {
+              const assetDataList = [];
+              for (let i = 0; i < qtyToProcess; i++) {
+                assetDataList.push({
+                  productId: Number(productId),
+                  assetSerialNumber: `SN-${Date.now()}-${i}`,
+                  assetStatus: 'In_Stock',
+                  assetPurchaseCost: Number(unitCost),
+                  assetPurchaseDate: txDateObj,
+                  supplierId: supplierId ? Number(supplierId) : null,
+                  isInternalSn: true,
+                });
               }
+              if (assetDataList.length > 0) {
+                await tx.machinesAssets.createMany({
+                  data: assetDataList,
+                  skipDuplicates: true,
+                });
+              }
+            }
+          } else if (transactionType === 'OUT') {
+            // --- กรณีเบิกออก (OUT): ตัดสต็อกแบบ FIFO ---
+            let qtyNeeded = qtyToProcess;
+
+            const availableLots = await tx.productLots.findMany({
+              where: {
+                productId: Number(productId),
+                remainingQty: { gt: 0 },
+                lotStatus: 'Active',
+              },
+              orderBy: { receiveDate: 'asc' },
+            });
+
+            for (const lot of availableLots) {
+              if (qtyNeeded <= 0) break;
+
+              const takeQty = Math.min(qtyNeeded, lot.remainingQty);
+              qtyNeeded -= takeQty;
+
+              const newRemainingQty = lot.remainingQty - takeQty;
+              await tx.productLots.update({
+                where: { lotId: lot.lotId },
+                data: {
+                  remainingQty: newRemainingQty,
+                  lotStatus: newRemainingQty === 0 ? 'Depleted' : 'Active',
+                },
+              });
+
+              await tx.transactionLotDetails.create({
+                data: {
+                  transactionId: newTx.transactionId,
+                  lotId: lot.lotId,
+                  quantityUsed: takeQty,
+                  costApplied: lot.unitCost,
+                },
+              });
+            }
+
+            if (qtyNeeded > 0) {
+              throw new Error(
+                `สินค้า "${productInfo.productName}" สต็อกในระบบไม่พอเบิกครับ (ขาดอีก ${qtyNeeded} ชิ้น)`
+              );
+            }
+
+            // อัปเดตลดสต็อกรวมในตารางสินค้าหลัก
+            await tx.productsCatalog.update({
+              where: { productId: Number(productId) },
+              data: { stockQty: { decrement: qtyToProcess } },
+            });
+          } else if (transactionType === 'MIXING') {
+            // =========================================================================
+            // 🧪 กรณีผสมน้ำยา (MIXING): 1 ถังหัวเชื้อ -> 2 ถังผสม (ตัดหัวเชื้อ + เพิ่มน้ำยาผสม)
+            // =========================================================================
+            const mixedOutputQty = yieldQty ? Number(yieldQty) : qtyToProcess * 2;
+
+            // ขั้นที่ 1: ตัดสต็อกหัวเชื้อออก (FIFO) และคำนวณต้นทุนรวมของหัวเชื้อที่ใช้ไป
+            let qtyNeeded = qtyToProcess;
+            let totalConcentrateCost = 0;
+
+            const availableLots = await tx.productLots.findMany({
+              where: {
+                productId: Number(productId),
+                remainingQty: { gt: 0 },
+                lotStatus: 'Active',
+              },
+              orderBy: { receiveDate: 'asc' },
+            });
+
+            for (const lot of availableLots) {
+              if (qtyNeeded <= 0) break;
+
+              const takeQty = Math.min(qtyNeeded, lot.remainingQty);
+              qtyNeeded -= takeQty;
+              totalConcentrateCost += takeQty * Number(lot.unitCost || 0);
+
+              const newRemainingQty = lot.remainingQty - takeQty;
+              await tx.productLots.update({
+                where: { lotId: lot.lotId },
+                data: {
+                  remainingQty: newRemainingQty,
+                  lotStatus: newRemainingQty === 0 ? 'Depleted' : 'Active',
+                },
+              });
+
+              await tx.transactionLotDetails.create({
+                data: {
+                  transactionId: newTx.transactionId,
+                  lotId: lot.lotId,
+                  quantityUsed: takeQty,
+                  costApplied: lot.unitCost,
+                },
+              });
+            }
+
+            if (qtyNeeded > 0) {
+              throw new Error(
+                `หัวเชื้อ "${productInfo.productName}" ในคลังไม่พอผสมครับ (ขาดอีก ${qtyNeeded} ถัง)`
+              );
+            }
+
+            // ลดสต็อกหัวเชื้อตั้งต้น
+            await tx.productsCatalog.update({
+              where: { productId: Number(productId) },
+              data: { stockQty: { decrement: qtyToProcess } },
+            });
+
+            // ขั้นที่ 2: ค้นหารายการ "น้ำยาผสมแล้ว" ที่คู่กันในระบบ
+            const allChemProducts = await tx.productsCatalog.findMany({
+              where: {
+                OR: [
+                  { categoryId: { in: [5, 107] } },
+                  { productName: { contains: 'น้ำยา' } },
+                ],
+              },
+            });
+
+            const srcModel = (productInfo.productModelCode || '').trim();
+            const srcBaseName = (productInfo.productName || '')
+              .replace(/หัวเชื้อ/g, '')
+              .replace(/\(Pure\)/gi, '')
+              .trim();
+
+            // หาตัวที่เป็นน้ำยาผสม (มีคำว่า "ผสม" หรือ "(MIX)") และตรงรุ่น/ชื่อใกล้เคียง
+            const mixedCandidates = allChemProducts.filter((p) => {
+              if (p.productId === productInfo.productId) return false;
+              const n = (p.productName || '').toLowerCase();
+              const m = (p.productModelCode || '').toLowerCase();
+              return n.includes('ผสม') || m.includes('(mix)');
+            });
+
+            let targetMixedProduct = mixedCandidates.find((p) => {
+              const m = (p.productModelCode || '').toLowerCase();
+              const n = (p.productName || '').toLowerCase();
+              if (srcModel && m.includes(srcModel.toLowerCase())) return true;
+              if (srcBaseName && n.includes(srcBaseName.toLowerCase())) return true;
+              return false;
+            });
+
+            // ถ้ามีตัวผสมตัวเดียวในระบบ ให้จับคู่ตัวนั้นทันที
+            if (!targetMixedProduct && mixedCandidates.length === 1) {
+              targetMixedProduct = mixedCandidates[0];
+            }
+
+            if (!targetMixedProduct) {
+              throw new Error(
+                `ไม่พบรายการสินค้า "น้ำยาผสมแล้ว" ที่คู่กับ "${productInfo.productName}" ในคลัง (กรุณาสร้างรายการสินค้าที่มีคำว่า "ผสม" หรือรหัสรุ่นต่อท้ายด้วย (MIX) ก่อนครับ)`
+              );
+            }
+
+            // ขั้นที่ 3: บันทึกรับเข้า (IN) สำหรับน้ำยาผสม จำนวน 2 เท่า (mixedOutputQty)
+            const costPerMixedUnit =
+              mixedOutputQty > 0 ? totalConcentrateCost / mixedOutputQty : 0;
+
+            const mixedInTx = await tx.inventoryTransactions.create({
+              data: {
+                productId: targetMixedProduct.productId,
+                employeeId: employeeId ? Number(employeeId) : null,
+                transactionType: 'IN',
+                quantity: mixedOutputQty,
+                transactionDate: txDateObj,
+                referenceNo: referenceNo || null,
+                remark: `รับเข้าจากการผสม ${productInfo.productName} ${qtyToProcess} ถัง (สูตร 1:2 ได้ ${mixedOutputQty} ถัง)`,
+              },
+            });
+
+            const newMixedLot = await tx.productLots.create({
+              data: {
+                productId: targetMixedProduct.productId,
+                lotNumber: referenceNo || `MIX-${Date.now()}`,
+                unitCost: costPerMixedUnit,
+                originalQty: mixedOutputQty,
+                remainingQty: mixedOutputQty,
+                receiveDate: txDateObj,
+              },
+            });
+
+            await tx.transactionLotDetails.create({
+              data: {
+                transactionId: mixedInTx.transactionId,
+                lotId: newMixedLot.lotId,
+                quantityUsed: mixedOutputQty,
+                costApplied: costPerMixedUnit,
+              },
+            });
+
+            // เพิ่มสต็อกน้ำยาผสมเข้าตารางสินค้าหลัก
+            await tx.productsCatalog.update({
+              where: { productId: targetMixedProduct.productId },
+              data: { stockQty: { increment: mixedOutputQty } },
             });
           }
-
-          if (qtyNeeded > 0) {
-            throw new Error(`สินค้า ID ${productId} สต็อกในระบบไม่พอเบิกครับ (ขาดอีก ${qtyNeeded} ชิ้น)`);
-          }
-
-          // 🌟 อัปเดตลดสต็อกรวมในตารางสินค้าหลัก 🌟
-          await tx.productsCatalog.update({
-            where: { productId: Number(productId) },
-            data: { stockQty: { decrement: qtyToProcess } }
-          });
         }
+        return mainTxIds;
+      },
+      {
+        maxWait: 10000,
+        timeout: 20000,
       }
-      return mainTxIds;
-    }, {
-      maxWait: 10000, // เพิ่มเวลา Timeout รอ Connection (10 วินาที)
-      timeout: 20000  // ขยายเวลาทำงานสูงสุดใน Transaction
-    });
+    );
 
     return NextResponse.json({ success: true, transactionIds: result });
   } catch (error: any) {
