@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Coins, Layers, ShoppingCart, FlaskConical } from 'lucide-react';
+import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Coins, Layers, FlaskConical } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import PrintQrModal from '@/components/PrintQrModal';
-import ConsumableOrderModal from '@/components/ConsumableOrderModal';
 import Link from 'next/link';
 
 interface Category { 
@@ -49,8 +48,6 @@ interface BulkTxItem {
 export default function MainInventorySystem() {
   const [activeTab, setActiveTab] = useState<'inventory' | 'machines' | 'analytics' | 'quick_check'>('quick_check');
   const [inventorySubTab, setInventorySubTab] = useState<'consumables' | 'machines_catalog'>('consumables');
-
-  const [isConsumableOrderModalOpen, setIsConsumableOrderModalOpen] = useState(false);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -702,12 +699,6 @@ export default function MainInventorySystem() {
                 </h2>
                 <div className="flex items-center gap-2">
                   <button 
-                    onClick={() => setIsConsumableOrderModalOpen(true)}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg"
-                  >
-                    <ShoppingCart size={16} /> เบิกน้ำยาเคมีภัณฑ์
-                  </button>
-                  <button 
                     onClick={() => setIsPrintModalOpen(true)}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg"
                   >
@@ -871,7 +862,6 @@ export default function MainInventorySystem() {
             </div>
 
             <div className="flex flex-wrap justify-end gap-3">
-              <button onClick={() => setIsConsumableOrderModalOpen(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition shadow-lg shadow-blue-600/20"><ShoppingCart size={18} /> เบิกน้ำยาเคมีภัณฑ์</button>
               <button onClick={() => setIsPrintModalOpen(true)} className="bg-slate-800 hover:bg-slate-700 text-emerald-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><Printer size={18} /> พิมพ์ป้าย QR Code</button>
               <button onClick={fetchHistory} className="bg-slate-800 hover:bg-slate-700 text-blue-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><ClipboardList size={18} /> ประวัติรับ/เบิก</button>
               <button onClick={() => { setBulkTxItems([{ productId: '', quantity: 1, unitCost: '', expireDate: '' }]); setBulkTxRef(''); setBulkTxRemark(''); setBulkTxEmployee(''); setBulkTxSupplier(''); setBulkTxType('IN'); setBulkTxDate(getTodayString()); setIsBulkTxModalOpen(true); }} className="bg-slate-800 hover:bg-slate-700 text-emerald-400 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 border border-slate-700/60 transition"><ArrowRightLeft size={18} /> จัดการสต็อก (รับ/เบิก)</button>
@@ -1287,16 +1277,6 @@ export default function MainInventorySystem() {
         onClose={() => setIsPrintModalOpen(false)}
         products={products}
         categories={categories}
-      />
-
-      <ConsumableOrderModal
-        isOpen={isConsumableOrderModalOpen}
-        onClose={() => setIsConsumableOrderModalOpen(false)}
-        products={products}
-        customers={customers}
-        onSuccess={() => {
-          fetchAllData();
-        }}
       />
 
       {isMachineModalOpen && (
