@@ -42,7 +42,7 @@ export async function POST(request: Request) {
       }
 
       // 3. ดึง Lot สินค้าจาก ProductLots ที่ยังมีของเหลือ เรียงตาม FIFO
-      const activeLots = await tx.productLots.findMany({
+      let activeLots = await tx.productLots.findMany({
         where: {
           productId: prodIdNum,
           remainingQty: { gt: 0 },
@@ -53,6 +53,22 @@ export async function POST(request: Request) {
           { receiveDate: 'asc' },
         ],
       });
+
+      // 🛠️ กรณีฉุกเฉิน: ถ้าสินค้ามี stockQty แต่ไม่มี Lot Active อยู่ในระบบ ให้สร้าง Lot ชั่วคราวให้อัตโนมัติทันที
+      if (activeLots.length === 0 && currentStock > 0) {
+        const fallbackLot = await tx.productLots.create({
+          data: {
+            productId: prodIdNum,
+            lotNumber: `AUTO-LOT-${Date.now()}`,
+            unitCost: product.unitCost || 0,
+            originalQty: currentStock,
+            remainingQty: currentStock,
+            lotStatus: 'Active',
+            receiveDate: new Date(),
+          },
+        });
+        activeLots = [fallbackLot];
+      }
 
       let qtyToDeduct = qtyNum;
       let totalCostApplied = 0;
@@ -83,6 +99,10 @@ export async function POST(request: Request) {
 
         totalCostApplied += deductFromThisLot * unitCost;
         qtyToDeduct -= deductFromThisLot;
+      }
+
+      if (qtyToDeduct > 0) {
+        throw new Error(`สต็อกใน Lot ไม่เพียงพอสำหรับตัดจำหน่าย (ขาดอีก ${qtyToDeduct})`);
       }
 
       // 4. สร้างเลขที่ใบส่งของอัตโนมัติ (กรณีไม่ได้กรอกมา)
