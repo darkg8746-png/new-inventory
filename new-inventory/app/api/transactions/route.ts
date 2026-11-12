@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 
+export const dynamic = 'force-dynamic';
+
 const prisma = new PrismaClient();
 
 export async function GET() {
@@ -89,17 +91,8 @@ export async function POST(req: Request) {
             data: { stockQty: { increment: qtyToProcess } }
           });
 
-          const productName = (productInfo?.productName || '').toLowerCase();
-          const categoryName = (productInfo?.category?.categoryName || '').toLowerCase();
-          const catId = Number(productInfo?.categoryId);
-          
-          const isNonMachineItem = 
-            catId === 5 || catId === 107 ||
-            productName.includes('ไส้กรอง') || productName.includes('โอริง') || 
-            productName.includes('สายยาง') || productName.includes('ข้อต่อ') || 
-            productName.includes('น้ำยา') || productName.includes('หัวเชื้อ') || 
-            productName.includes('แกลลอน') || productName.includes('ใบมีด') || 
-            categoryName.includes('อะไหล่') || categoryName.includes('สิ้นเปลือง') || categoryName.includes('น้ำยา');
+          // ⭐ ยึดค่า requiresSerialNumber จากหมวดหมู่ในฐานข้อมูลเป็นหลัก (ถ้าเป็น false คืออะไหล่/ไม่มี S/N)
+          const isNonMachineItem = productInfo?.category?.requiresSerialNumber === false;
 
           if (!isNonMachineItem) {
             const assetDataList = [];

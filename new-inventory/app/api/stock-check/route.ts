@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 
+export const dynamic = 'force-dynamic'; // <--- บังคับไม่ให้ Next.js จำ Cache เก่า
+
 const prisma = new PrismaClient();
 
 export async function GET(request: Request) {
@@ -8,19 +10,10 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('q') || '';
 
-    const allowedCategories = [
-      'ice maker',
-      'Under counter dishwasher',
-      'Hood type dishwasher',
-      'Conveyor dishwasher'
-    ];
-
+    // ดึงเฉพาะหมวดหมู่ที่คุมด้วย S/N (หรือถ้าอยากให้ Quick Check โชว์ทุกหมวดหมู่ ให้เอาเงื่อนไข where ออกได้เลย)
     const categories = await prisma.productCategories.findMany({
       where: {
-        categoryName: {
-          in: allowedCategories,
-          mode: 'insensitive'
-        }
+        requiresSerialNumber: true
       }
     });
 
@@ -55,12 +48,12 @@ export async function GET(request: Request) {
 
     const groupedData = categories.map(cat => {
       const catProducts = products.filter(p => p.categoryId === cat.id);
-      
       const modelMap: { [key: string]: any } = {};
 
       catProducts.forEach(p => {
-        const realStock = p.lots.reduce((sum, lot) => sum + lot.remainingQty, 0);
-        const currentStock = realStock > 0 ? realStock : (p.stockQty ?? 0);
+        const readyMachines = machines.filter(m => m.productId === p.productId);
+        // ถ้าระบบใช้ S/N ให้นับจากจำนวนเครื่อง In_Stock จริง, ถ้าไม่มีให้ดูจาก Lot หรือ stockQty
+        const currentStock = readyMachines.length > 0 ? readyMachines.length : (p.stockQty ?? 0);
 
         const modelKey = p.productModelCode || p.productName || 'อื่นๆ';
         if (!modelMap[modelKey]) {
@@ -72,7 +65,6 @@ export async function GET(request: Request) {
           };
         }
 
-        const readyMachines = machines.filter(m => m.productId === p.productId);
         modelMap[modelKey].totalStockQty += currentStock;
         modelMap[modelKey].products.push({
           ...p,
