@@ -139,30 +139,46 @@ export default function ChemicalSystemPage() {
         }
       }
 
-      // ดึงข้อมูลลูกค้าผ่าน API /api/customers และรองรับทุกรูปแบบโครงสร้าง JSON
+      // --- ส่วนที่แก้ไขปัญหาลูกค้าไม่ขึ้น ---
+      // 1. ใช้ตัวแปรพักข้อมูลก่อน
+      let fetchedCustomers: Customer[] = [];
+      
+      // ดึงข้อมูลลูกค้าผ่าน API /api/customers 
       if (custRes) {
-        const custData = await custRes.json();
-        if (Array.isArray(custData)) {
-          setCustomers(custData);
-        } else if (custData.success && Array.isArray(custData.customers)) {
-          setCustomers(custData.customers);
-        } else if (custData.success && Array.isArray(custData.data)) {
-          setCustomers(custData.data);
-        } else if (Array.isArray(custData.data)) {
-          setCustomers(custData.data);
+        try {
+          const custData = await custRes.json();
+          if (Array.isArray(custData)) {
+            fetchedCustomers = custData;
+          } else if (custData.success && Array.isArray(custData.customers)) {
+            fetchedCustomers = custData.customers;
+          } else if (custData.success && Array.isArray(custData.data)) {
+            fetchedCustomers = custData.data;
+          } else if (Array.isArray(custData.data)) {
+            fetchedCustomers = custData.data;
+          }
+        } catch (err) {
+          console.error('API /api/customers parse error:', err);
         }
       }
 
-      // Fallback: ถ้า API ยังดึงข้อมูลไม่ได้ ให้ดึงตรงจาก Supabase เผื่อไว้
-      if (customers.length === 0) {
-        const { data: sbCusts } = await supabase
+      // 2. ถ้า API ล่ม หรือไม่ได้ข้อมูล ให้ดึงตรงจาก Supabase ทันที
+      if (fetchedCustomers.length === 0) {
+        console.log("Fetching customers directly from Supabase...");
+        const { data: sbCusts, error: sbError } = await supabase
           .from('customers')
           .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
           .order('customer_id', { ascending: true });
-        if (sbCusts && sbCusts.length > 0) {
-          setCustomers(sbCusts);
+
+        if (sbError) {
+          console.error('Supabase fetch error:', sbError);
+        } else if (sbCusts && sbCusts.length > 0) {
+          fetchedCustomers = sbCusts;
         }
       }
+
+      // 3. นำข้อมูลที่ได้ไปใส่ใน State ครั้งเดียว
+      setCustomers(fetchedCustomers);
+      // ------------------------------------
 
       if (txRes) {
         const txData = await txRes.json();
@@ -531,7 +547,7 @@ export default function ChemicalSystemPage() {
                     const empName = `${emp.firstName || emp.name || ''} ${emp.lastName || ''}`.trim() || `พนักงาน #${empId}`;
                     return (
                       <option key={empId} value={empId}>
-                        #{empId} - {empName}
+                        #{empId} {empName}
                       </option>
                     );
                   })}
@@ -689,11 +705,16 @@ export default function ChemicalSystemPage() {
                     </option>
                     {customers.map((c) => (
                       <option key={c.customer_id} value={c.customer_id}>
-                        #{c.customer_id} - {c.customer_name} {c.customer_taxname ? `(${c.customer_taxname})` : ''}
+                        #{c.customer_id} {c.customer_name} {c.customer_taxname ? `(${c.customer_taxname})` : ''}
                       </option>
                     ))}
                   </select>
-                  {customers.length === 0 && (
+                  {customers.length === 0 && !loading && (
+                    <p className="text-[11px] text-amber-400 mt-1">
+                      * ไม่พบข้อมูลลูกค้า กรุณาตรวจสอบการตั้งค่าฐานข้อมูล
+                    </p>
+                  )}
+                  {loading && (
                     <p className="text-[11px] text-amber-400 mt-1">
                       * กำลังโหลดรายชื่อลูกค้า...
                     </p>
