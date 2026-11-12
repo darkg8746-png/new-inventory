@@ -37,11 +37,22 @@ interface Product {
 }
 
 interface Customer {
-  customer_id: number;
-  customer_name: string;
-  customer_taxname: string | null;
-  customer_contact_name: string | null;
-  customer_number: string | null;
+  customer_id?: number;
+  id?: number;
+  customerId?: number;
+  customer_name?: string;
+  name?: string;
+  companyName?: string;
+  customer_taxname?: string | null;
+  customer_contact_name?: string | null;
+  customer_number?: string | null;
+}
+
+interface Employee {
+  employeeId: number;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
 }
 
 interface Transaction {
@@ -59,7 +70,7 @@ export default function ChemicalSystemPage() {
   const [activeTab, setActiveTab] = useState<'mixing' | 'delivery'>('mixing');
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,7 +79,6 @@ export default function ChemicalSystemPage() {
   const [selectedSourceId, setSelectedSourceId] = useState<number | ''>('');
   const [batchQty, setBatchQty] = useState<number>(1);
   const [isDilutionProcess, setIsDilutionProcess] = useState<boolean>(true);
-  const [batchStaffName, setBatchStaffName] = useState<string>('');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | ''>('');
   const [batchRemark, setBatchRemark] = useState<string>('');
 
@@ -135,7 +145,7 @@ export default function ChemicalSystemPage() {
       if (custRes) {
         const custData = await custRes.json();
         if (custData.success) {
-          setCustomers(custData.customers || []);
+          setCustomers(custData.customers || custData.data || []);
         }
       }
 
@@ -146,7 +156,7 @@ export default function ChemicalSystemPage() {
         }
       }
 
-      if (empRes && empRes.ok) {
+      if (empRes) {
         const empData = await empRes.json();
         if (empData.success) {
           setEmployees(empData.employees || []);
@@ -163,7 +173,6 @@ export default function ChemicalSystemPage() {
   const mixedProducts = allChemicals.filter((p) => isMixedChemical(p));
   const currentDeliveryOptions = deliveryType === 'MIXED' ? mixedProducts : concentrateProducts;
 
-  // ย่อขนาดรูปภาพก่อนอัปโหลดเพื่อให้เร็วและประหยัดพื้นที่
   const compressImage = (file: File): Promise<Blob> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -212,24 +221,21 @@ export default function ChemicalSystemPage() {
     setPhotoPreview(null);
   };
 
-  // Sub-tab A: บันทึกการผสมน้ำยากลาง
   const handleMixingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSourceId) return alert('กรุณาเลือกหัวเชื้อน้ำยาตั้งต้น');
     if (batchQty <= 0) return alert('กรุณาระบุจำนวนมากกว่า 0');
-    if (!batchStaffName.trim() && !selectedEmployeeId) {
-      return alert('กรุณาระบุชื่อหรือเลือกพนักงานผู้เบิก');
-    }
+    if (!selectedEmployeeId) return alert('กรุณาเลือกพนักงานผู้เบิกจากรายการ');
 
     const selectedEmp = employees.find((emp) => emp.employeeId === Number(selectedEmployeeId));
-    const finalStaffText = selectedEmp
-      ? `${selectedEmp.firstName || selectedEmp.name} ${selectedEmp.lastName || ''}`.trim()
-      : batchStaffName.trim();
+    const empName = selectedEmp
+      ? `${selectedEmp.firstName || selectedEmp.name || ''} ${selectedEmp.lastName || ''}`.trim()
+      : `ID: ${selectedEmployeeId}`;
 
     const defaultDesc = isDilutionProcess
       ? 'เบิกผสมน้ำยาคลังกลาง'
       : 'เบิกน้ำยาสำเร็จรูปโดยไม่ผ่านกระบวนการผสม';
-    const combinedRemark = `[ผู้เบิก: ${finalStaffText}] ${batchRemark.trim() || defaultDesc}`;
+    const combinedRemark = `[ผู้เบิก: ${empName}] ${batchRemark.trim() || defaultDesc}`;
 
     setIsSubmitting(true);
     try {
@@ -239,7 +245,7 @@ export default function ChemicalSystemPage() {
         body: JSON.stringify({
           transactionType: isDilutionProcess ? 'MIXING' : 'OUT',
           referenceNo: `BATCH-${Math.floor(100000 + Math.random() * 900000)}`,
-          employeeId: selectedEmployeeId ? Number(selectedEmployeeId) : undefined,
+          employeeId: Number(selectedEmployeeId),
           remark: combinedRemark,
           items: [{ productId: Number(selectedSourceId), quantity: Number(batchQty) }],
         }),
@@ -249,6 +255,7 @@ export default function ChemicalSystemPage() {
         alert('✅ บันทึกการตัดสต็อกหัวเชื้อและเพิ่มสต็อกน้ำยาผสมสำเร็จเรียบร้อยแล้ว');
         setBatchRemark('');
         setBatchQty(1);
+        setSelectedEmployeeId('');
         fetchData();
       } else {
         alert(`❌ เกิดข้อผิดพลาด: ${data.error}`);
@@ -259,7 +266,6 @@ export default function ChemicalSystemPage() {
     setIsSubmitting(false);
   };
 
-  // Sub-tab B: บันทึกเปิดบิลจัดส่งน้ำยาให้ลูกค้า + อัปโหลดรูปภาพ
   const handleDeliverySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deliveryProductId) return alert('กรุณาเลือกผลิตภัณฑ์น้ำยาที่ต้องการจัดส่ง');
@@ -270,7 +276,6 @@ export default function ChemicalSystemPage() {
     let uploadedPhotoUrl: string | null = null;
 
     try {
-      // 1. ถ้ามีการถ่ายรูป/เลือกรูป ให้อัปโหลดขึ้น Supabase Storage ก่อน
       if (photoFile) {
         const compressedBlob = await compressImage(photoFile);
         const fileName = `delivery-${Date.now()}-${Math.floor(Math.random() * 1000)}.jpg`;
@@ -295,7 +300,6 @@ export default function ChemicalSystemPage() {
         uploadedPhotoUrl = publicUrlData.publicUrl;
       }
 
-      // 2. ส่งข้อมูลเปิดบิลและลิงก์รูปภาพไปที่ API
       const typePrefix = deliveryType === 'MIXED' ? '[น้ำยาผสมแล้ว]' : '[หัวเชื้อ]';
       const combinedRemark = `${typePrefix} ${deliveryRemark}`.trim();
 
@@ -328,7 +332,6 @@ export default function ChemicalSystemPage() {
     setIsSubmitting(false);
   };
 
-  // แยกข้อความหมายเหตุและลิงก์รูปภาพออกจากกัน
   const parseRemarkAndPhoto = (rawRemark: string | null) => {
     if (!rawRemark) return { text: '-', photoUrl: null };
     const parts = rawRemark.split('|PHOTO:');
@@ -499,44 +502,21 @@ export default function ChemicalSystemPage() {
                 <label className="block text-xs md:text-sm text-emerald-400 mb-2 font-semibold flex items-center gap-1.5">
                   <UserCheck size={16} /> 3. พนักงานผู้เบิก *
                 </label>
-                {employees.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <select
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
-                      value={selectedEmployeeId}
-                      onChange={(e) => {
-                        setSelectedEmployeeId(e.target.value ? Number(e.target.value) : '');
-                        if (e.target.value) setBatchStaffName('');
-                      }}
-                    >
-                      <option value="">-- เลือกจากรายชื่อพนักงาน --</option>
-                      {employees.map((emp: any) => (
-                        <option key={emp.employeeId} value={emp.employeeId}>
-                          #{emp.employeeId} - {emp.firstName || emp.name} {emp.lastName || ''}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="text"
-                      placeholder="หรือพิมพ์ชื่อพนักงานผู้เบิกเอง..."
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500"
-                      value={batchStaffName}
-                      onChange={(e) => {
-                        setBatchStaffName(e.target.value);
-                        if (e.target.value) setSelectedEmployeeId('');
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <input
-                    type="text"
-                    placeholder="ระบุชื่อ หรือ รหัสพนักงานผู้เบิก เช่น ช่างเอก, สมชาย..."
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500"
-                    value={batchStaffName}
-                    onChange={(e) => setBatchStaffName(e.target.value)}
-                    required
-                  />
-                )}
+                <select
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
+                  value={selectedEmployeeId}
+                  onChange={(e) => setSelectedEmployeeId(e.target.value ? Number(e.target.value) : '')}
+                  required
+                >
+                  <option value="" disabled>
+                    -- กรุณาเลือกพนักงานผู้เบิกจากรายชื่อ --
+                  </option>
+                  {employees.map((emp) => (
+                    <option key={emp.employeeId} value={emp.employeeId}>
+                      #{emp.employeeId} - {emp.firstName || emp.name || ''} {emp.lastName || ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* 4. หมายเหตุบันทึกคลัง */}
@@ -683,17 +663,26 @@ export default function ChemicalSystemPage() {
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
                     value={selectedCustomerId}
                     onChange={(e) => setSelectedCustomerId(Number(e.target.value))}
+                    required
                   >
                     <option value="" disabled>
                       -- เลือกลูกค้า --
                     </option>
-                    {customers.map((c) => (
-                      <option key={c.customer_id} value={c.customer_id}>
-                        #{c.customer_id} {c.customer_name}{' '}
-                        {c.customer_taxname ? `(${c.customer_taxname})` : ''}
-                      </option>
-                    ))}
+                    {customers.map((c, index) => {
+                      const cId = c.customer_id ?? c.id ?? c.customerId ?? index;
+                      const cName = c.customer_name ?? c.name ?? c.companyName ?? `ลูกค้า #${cId}`;
+                      return (
+                        <option key={cId} value={cId}>
+                          #{cId} - {cName} {c.customer_taxname ? `(${c.customer_taxname})` : ''}
+                        </option>
+                      );
+                    })}
                   </select>
+                  {customers.length === 0 && (
+                    <p className="text-[11px] text-amber-400 mt-1">
+                      * ไม่พบรายชื่อลูกค้าในระบบ (กรุณาตรวจสอบ API /api/customers)
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -732,7 +721,6 @@ export default function ChemicalSystemPage() {
 
                 {!photoPreview ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {/* ปุ่มเปิดกล้องถ่ายรูปโดยตรง (เหมาะกับมือถือหน้างาน) */}
                     <label className="flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl cursor-pointer transition text-sm font-bold">
                       <Camera size={18} /> ถ่ายรูปทันที (เปิดกล้อง)
                       <input
@@ -744,7 +732,6 @@ export default function ChemicalSystemPage() {
                       />
                     </label>
 
-                    {/* ปุ่มเลือกรูปจากอัลบั้ม/คอมพิวเตอร์ */}
                     <label className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl cursor-pointer transition text-sm font-medium">
                       <ImageIcon size={18} /> เลือกรูปจากเครื่อง
                       <input
