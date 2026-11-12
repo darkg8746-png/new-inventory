@@ -147,6 +147,19 @@ export default function MainInventorySystem() {
   const [valuationData, setValuationData] = useState<any>(null);
   const [loadingValuation, setLoadingValuation] = useState(false);
 
+  // ฟังก์ชันตรวจสอบว่าเป็นกลุ่มน้ำยาเคมีภัณฑ์หรือไม่
+  const isChemicalProduct = (p: Product) => {
+    const name = (p.productName || '').toLowerCase();
+    const catId = Number(p.categoryId);
+    return (
+      catId === 5 ||
+      catId === 107 ||
+      name.includes('น้ำยา') ||
+      name.includes('หัวเชื้อ') ||
+      name.includes('แกลลอน')
+    );
+  };
+
   useEffect(() => {
     fetchAllData();
     handleQuickCheckSearch('');
@@ -167,7 +180,8 @@ export default function MainInventorySystem() {
     if (action === 'withdraw' && productIdParam) {
       const targetId = Number(productIdParam);
       const foundProd = products.find(p => p.productId === targetId);
-      if (foundProd) {
+      // ถ้าเป็นน้ำยา ไม่ให้เบิกผ่านหน้าหลัก (ต้องไปหน้า /chemical)
+      if (foundProd && !isChemicalProduct(foundProd)) {
         setBulkTxItems([{ productId: foundProd.productId, quantity: 1, unitCost: foundProd.unitCost || '', expireDate: '' }]);
         setBulkTxType('OUT');
         setBulkTxDate(getTodayString());
@@ -308,6 +322,17 @@ export default function MainInventorySystem() {
   const handleSaveBulkTransaction = async () => {
     const validItems = bulkTxItems.filter(item => item.productId !== '' && item.quantity > 0);
     if (validItems.length === 0) return alert('กรุณาเลือกสินค้าและระบุจำนวน');
+
+    // เช็กดักซ้ำอีกชั้น: ถ้าเป็นการเบิกออก (OUT) ห้ามมีน้ำยาปนอยู่เด็ดขาด
+    if (bulkTxType === 'OUT') {
+      const hasChemical = validItems.some(item => {
+        const prod = safeProducts.find(p => p.productId === item.productId);
+        return prod ? isChemicalProduct(prod) : false;
+      });
+      if (hasChemical) {
+        return alert('❌ รายการน้ำยาเคมีภัณฑ์ไม่สามารถเบิกออกผ่านหน้านี้ได้ กรุณาใช้เมนู "ระบบผสมน้ำยา & จัดส่ง" ครับ');
+      }
+    }
     
     const itemsToSubmit = validItems.map(item => ({
       productId: item.productId,
@@ -513,7 +538,17 @@ export default function MainInventorySystem() {
   const filteredCategories = safeCategories.filter(cat => cat.categoryName.toLowerCase().includes(categorySearch.toLowerCase()));
   const selectedCategoryName = safeCategories.find(c => c.id === formData.categoryId)?.categoryName || 'เลือกหมวดหมู่...';
   
-  const filteredTxProducts = sortedProducts.filter(p => (p.productName || '').toLowerCase().includes(txProductSearch.toLowerCase()) || (p.productModelCode || '').toLowerCase().includes(txProductSearch.toLowerCase()));
+  // กรองรายการสินค้าในหน้าต่างจัดการสต็อก:
+  // - ถ้ารับเข้า (IN) แสดงทั้งหมดรวมถึงน้ำยา
+  // - ถ้าเบิกออก (OUT) ซ่อนกลุ่มน้ำยาออกทั้งหมด (บังคับเบิกผ่านหน้า /chemical)
+  const filteredTxProducts = sortedProducts.filter(p => {
+    if (bulkTxType === 'OUT' && isChemicalProduct(p)) return false;
+    return (
+      (p.productName || '').toLowerCase().includes(txProductSearch.toLowerCase()) ||
+      (p.productModelCode || '').toLowerCase().includes(txProductSearch.toLowerCase())
+    );
+  });
+
   const filteredMachines = safeMachines.filter(m => (m.assetSerialNumber || '').toLowerCase().includes(machineSearch.toLowerCase()) || (m.product?.productName || '').toLowerCase().includes(machineSearch.toLowerCase()));
 
   const sortedCustomers = [...customers].sort((a, b) => a.customer_id - b.customer_id);
@@ -1792,7 +1827,31 @@ export default function MainInventorySystem() {
             <div className="p-6 overflow-y-auto flex-1 space-y-6">
               <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="block mb-1.5 text-sm text-slate-400">ประเภทรายการ *</label><select className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxType} onChange={(e) => setBulkTxType(e.target.value)}><option value="IN">รับของเข้าสต็อก (รัน Lot ใหม่)</option><option value="OUT">เบิกของออกไปใช้ (ตัด Lot เก่าสุดก่อน)</option></select></div>
+                  <div>
+                    <label className="block mb-1.5 text-sm text-slate-400">ประเภทรายการ *</label>
+                    <select 
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" 
+                      value={bulkTxType} 
+                      onChange={(e) => {
+                        const newType = e.target.value;
+                        setBulkTxType(newType);
+                        setOpenTxDropdownIndex(null);
+                        // ถ้าสลับเป็นโหมดเบิกออก (OUT) ให้เคลียร์รายการที่เป็นน้ำยาทิ้งทันที ป้องกันค้าง
+                        if (newType === 'OUT') {
+                          setBulkTxItems(prev => prev.map(item => {
+                            const prod = safeProducts.find(p => p.productId === item.productId);
+                            if (prod && isChemicalProduct(prod)) {
+                              return { productId: '', quantity: 1, unitCost: '', expireDate: '' };
+                            }
+                            return item;
+                          }));
+                        }
+                      }}
+                    >
+                      <option value="IN">รับของเข้าสต็อก (รัน Lot ใหม่)</option>
+                      <option value="OUT">เบิกของออกไปใช้ (ตัด Lot เก่าสุดก่อน)</option>
+                    </select>
+                  </div>
                   <div><label className="block mb-1.5 text-sm text-slate-400">{bulkTxType === 'IN' ? 'เลขที่บิลรับเข้า (จะถูกใช้เป็น Lot No.)' : 'เลขที่อ้างอิงใบเบิก'}</label><input type="text" placeholder={bulkTxType === 'IN' ? 'เช่น PO-2026-001' : 'เช่น ใบเบิก-001'} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxRef} onChange={(e) => setBulkTxRef(e.target.value)} /></div>
                 </div>
 
@@ -1815,7 +1874,14 @@ export default function MainInventorySystem() {
                 </div>
               </div>
               <div>
-                <h3 className="text-sm font-medium text-slate-400 mb-3">รายการสินค้า</h3>
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="text-sm font-medium text-slate-400">รายการสินค้า</h3>
+                  {bulkTxType === 'OUT' && (
+                    <span className="text-[11px] text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-lg">
+                      ℹ️ กลุ่มน้ำยาเคมีภัณฑ์ต้องเบิกผ่านเมนู &quot;ระบบผสมน้ำยา &amp; จัดส่ง&quot;
+                    </span>
+                  )}
+                </div>
                 <div className="space-y-4">
                   {bulkTxItems.map((item, index) => {
                     const selectedProduct = sortedProducts.find(p => p.productId === item.productId);

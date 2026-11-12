@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {
   ArrowLeft,
@@ -18,6 +18,10 @@ import {
   X,
   ExternalLink,
   UserCheck,
+  ChevronDown,
+  Building2,
+  User,
+  Phone,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -90,6 +94,11 @@ export default function ChemicalSystemPage() {
   const [deliveryRef, setDeliveryRef] = useState<string>('');
   const [deliveryRemark, setDeliveryRemark] = useState<string>('');
 
+  // Searchable Customer Dropdown State (รูปแบบเดียวกับหน้าเครื่องจักร)
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
+
   // Photo State สำหรับ Sub-tab B
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -97,6 +106,20 @@ export default function ChemicalSystemPage() {
 
   // Filter State for History
   const [historySearch, setHistorySearch] = useState<string>('');
+
+  // ปิด Dropdown อัตโนมัติเมื่อคลิกพื้นที่ด้านนอก
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        customerDropdownRef.current &&
+        !customerDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsCustomerDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const isMixedChemical = (p: Product) => {
     const name = (p.productName || '').toLowerCase();
@@ -122,7 +145,6 @@ export default function ChemicalSystemPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // แยกดึงข้อมูลลูกค้าตรงๆ เพื่อไม่ให้ติดขัดจาก API ตัวอื่น และป้องกันการแคชค่าเก่า
       try {
         const custRes = await fetch('/api/customers', { cache: 'no-store' });
         if (custRes.ok) {
@@ -156,7 +178,6 @@ export default function ChemicalSystemPage() {
         if (sbCusts) setCustomers(sbCusts);
       }
 
-      // ดึงข้อมูลสินค้าและประวัติ
       const [prodRes, txRes] = await Promise.all([
         fetch('/api/products', { cache: 'no-store' }).catch(() => null),
         fetch('/api/transactions', { cache: 'no-store' }).catch(() => null),
@@ -182,7 +203,6 @@ export default function ChemicalSystemPage() {
         }
       }
 
-      // ดึงข้อมูลพนักงาน
       const { data: sbEmps } = await supabase.from('employees').select('*');
       if (sbEmps) setEmployees(sbEmps);
 
@@ -191,6 +211,27 @@ export default function ChemicalSystemPage() {
     }
     setLoading(false);
   };
+
+  // กรองรายชื่อลูกค้าตามคำค้นหา (รหัส, ชื่อร้าน, บริษัท, ผู้ติดต่อ, เบอร์โทร)
+  const filteredCustomers = customers.filter((c) => {
+    if (!customerSearchTerm.trim()) return true;
+    const q = customerSearchTerm.toLowerCase().trim();
+    const idStr = String(c.customer_id);
+    const name = (c.customer_name || '').toLowerCase();
+    const taxname = (c.customer_taxname || '').toLowerCase();
+    const contact = (c.customer_contact_name || '').toLowerCase();
+    const phone = (c.customer_number || '').toLowerCase();
+    return (
+      idStr.includes(q) ||
+      `#${idStr}`.includes(q) ||
+      name.includes(q) ||
+      taxname.includes(q) ||
+      contact.includes(q) ||
+      phone.includes(q)
+    );
+  });
+
+  const selectedCustomerObj = customers.find((c) => c.customer_id === Number(selectedCustomerId));
 
   const allChemicals = products.filter(isAnyChemical);
   const concentrateProducts = allChemicals.filter((p) => !isMixedChemical(p));
@@ -347,6 +388,8 @@ export default function ChemicalSystemPage() {
         setDeliveryRef('');
         setDeliveryRemark('');
         setDeliveryQty(1);
+        setSelectedCustomerId('');
+        setCustomerSearchTerm('');
         clearPhoto();
         fetchData();
       } else {
@@ -683,36 +726,132 @@ export default function ChemicalSystemPage() {
                 </div>
               </div>
 
-              {/* 3. เลือกร้านค้าลูกค้า & เลขที่ใบส่งของ */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
-                    4. เลือกร้านค้า / ลูกค้าผู้รับน้ำยา * ({customers.length} รายการ)
+              {/* 3. เลือกร้านค้าลูกค้า (แบบค้นหาได้เหมือนหน้าเครื่องจักร) & เลขที่ใบส่งของ */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+                <div ref={customerDropdownRef} className="relative">
+                  <label className="block text-xs md:text-sm text-blue-400 mb-2 font-semibold flex items-center gap-1.5">
+                    <UserCheck size={16} /> 4. เลือกร้านค้า / ลูกค้าผู้รับน้ำยา (เรียงตามรหัสลูกค้า) * ({customers.length} รายการ)
                   </label>
-                  <select
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
-                    value={selectedCustomerId}
-                    onChange={(e) => setSelectedCustomerId(Number(e.target.value))}
-                    required
+
+                  {/* ปุ่มหลักสำหรับกดเปิด/ปิด Dropdown */}
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomerDropdownOpen((prev) => !prev)}
+                    className={`w-full bg-slate-950 border rounded-xl p-3 text-left text-sm flex items-center justify-between transition ${
+                      isCustomerDropdownOpen
+                        ? 'border-blue-500 ring-1 ring-blue-500/40'
+                        : 'border-slate-700 hover:border-slate-600'
+                    }`}
                   >
-                    <option value="" disabled>
-                      -- เลือกลูกค้า --
-                    </option>
-                    {customers.map((c) => (
-                      <option key={c.customer_id} value={c.customer_id}>
-                        #{c.customer_id} {c.customer_name} {c.customer_taxname ? `(${c.customer_taxname})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {customers.length === 0 && !loading && (
-                    <p className="text-[11px] text-amber-400 mt-1">
-                      * ไม่พบข้อมูลลูกค้า กรุณาตรวจสอบการตั้งค่าฐานข้อมูล
-                    </p>
-                  )}
-                  {loading && (
-                    <p className="text-[11px] text-amber-400 mt-1">
-                      * กำลังโหลดรายชื่อลูกค้า...
-                    </p>
+                    {selectedCustomerObj ? (
+                      <div className="flex items-center gap-2 truncate pr-2">
+                        <span className="px-2 py-0.5 bg-blue-950 text-blue-400 border border-blue-800/60 rounded text-xs font-bold font-mono shrink-0">
+                          #{selectedCustomerObj.customer_id}
+                        </span>
+                        <span className="text-white font-semibold truncate">
+                          {selectedCustomerObj.customer_name}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-slate-300">-- ค้นหาและเลือกลูกค้า --</span>
+                    )}
+                    <ChevronDown
+                      size={18}
+                      className={`text-slate-400 shrink-0 transition-transform ${
+                        isCustomerDropdownOpen ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
+
+                  {/* กล่องค้นหาและรายการลูกค้าแบบการ์ด */}
+                  {isCustomerDropdownOpen && (
+                    <div className="mt-2 bg-slate-950 border border-slate-700 rounded-xl p-3 shadow-2xl space-y-2.5 z-30">
+                      {/* ช่องพิมพ์ค้นหา */}
+                      <div className="relative">
+                        <Search
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                          size={15}
+                        />
+                        <input
+                          type="text"
+                          autoFocus
+                          placeholder="ค้นหารหัส, ชื่อร้าน, บริษัท, ชื่อผู้ติดต่อ, เบอร์โทร..."
+                          className="w-full bg-slate-900 border border-blue-500/70 rounded-lg pl-9 pr-8 py-2.5 text-xs md:text-sm text-white placeholder-slate-400 outline-none focus:border-blue-400"
+                          value={customerSearchTerm}
+                          onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                        />
+                        {customerSearchTerm && (
+                          <button
+                            type="button"
+                            onClick={() => setCustomerSearchTerm('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* รายการลูกค้าแบบ Scrollable */}
+                      <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
+                        {filteredCustomers.length === 0 ? (
+                          <div className="py-6 text-center text-xs text-slate-400">
+                            {loading ? 'กำลังโหลดรายชื่อลูกค้า...' : 'ไม่พบข้อมูลลูกค้าที่ค้นหา'}
+                          </div>
+                        ) : (
+                          filteredCustomers.map((c) => {
+                            const isSelected = c.customer_id === Number(selectedCustomerId);
+                            return (
+                              <div
+                                key={c.customer_id}
+                                onClick={() => {
+                                  setSelectedCustomerId(c.customer_id);
+                                  setIsCustomerDropdownOpen(false);
+                                }}
+                                className={`p-3 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
+                                  isSelected
+                                    ? 'bg-blue-950/50 border-blue-500/70'
+                                    : 'bg-slate-900/70 hover:bg-slate-900 border-slate-800/80 hover:border-slate-700'
+                                }`}
+                              >
+                                {/* ป้ายรหัสลูกค้า #ID */}
+                                <span className="px-2 py-0.5 bg-blue-950 text-blue-400 border border-blue-800/60 rounded text-xs font-bold font-mono shrink-0 mt-0.5">
+                                  #{c.customer_id}
+                                </span>
+
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  {/* ชื่อร้าน */}
+                                  <div className="text-sm font-bold text-white truncate">
+                                    {c.customer_name}
+                                  </div>
+
+                                  {/* รายละเอียด บจก/บริษัท, คอนแท็ก, เบอร์โทร */}
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                                    {c.customer_taxname && (
+                                      <span className="text-amber-400 flex items-center gap-1 truncate max-w-full">
+                                        <Building2 size={12} className="shrink-0" />
+                                        บจก/บริษัท: {c.customer_taxname}
+                                      </span>
+                                    )}
+                                    {c.customer_contact_name && (
+                                      <span className="text-indigo-300 flex items-center gap-1">
+                                        <User size={12} className="shrink-0" />
+                                        คอนแท็ก: {c.customer_contact_name}
+                                      </span>
+                                    )}
+                                    {c.customer_number && (
+                                      <span className="text-emerald-400 flex items-center gap-1 font-mono">
+                                        <Phone size={12} className="shrink-0" />
+                                        {c.customer_number}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
 
