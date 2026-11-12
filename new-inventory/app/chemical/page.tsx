@@ -21,8 +21,8 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://udkicadlthssizksdbaz.supabase.co';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_8OoWzZFM3caJMLA8dNT3BQ_2VtkTrqA';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface Product {
@@ -120,13 +120,48 @@ export default function ChemicalSystemPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [prodRes, custRes, txRes] = await Promise.all([
-        fetch('/api/products').catch(() => null),
-        fetch('/api/customers').catch(() => null),
-        fetch('/api/transactions').catch(() => null),
+      // แยกดึงข้อมูลลูกค้าตรงๆ เพื่อไม่ให้ติดขัดจาก API ตัวอื่น และป้องกันการแคชค่าเก่า
+      try {
+        const custRes = await fetch('/api/customers', { cache: 'no-store' });
+        if (custRes.ok) {
+          const custData = await custRes.json();
+          const list = Array.isArray(custData)
+            ? custData
+            : custData.customers || custData.data || [];
+
+          if (list.length > 0) {
+            setCustomers(list);
+          } else {
+            const { data: sbCusts } = await supabase
+              .from('customers')
+              .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
+              .order('customer_id', { ascending: true });
+            if (sbCusts) setCustomers(sbCusts);
+          }
+        } else {
+          // Fallback กรณี API ตอบกลับสถานะไม่ใช่ 200 OK
+          const { data: sbCusts } = await supabase
+            .from('customers')
+            .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
+            .order('customer_id', { ascending: true });
+          if (sbCusts) setCustomers(sbCusts);
+        }
+      } catch (e) {
+        console.error('Customer fetch failed, falling back to Supabase:', e);
+        const { data: sbCusts } = await supabase
+          .from('customers')
+          .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
+          .order('customer_id', { ascending: true });
+        if (sbCusts) setCustomers(sbCusts);
+      }
+
+      // ดึงข้อมูลสินค้าและประวัติ
+      const [prodRes, txRes] = await Promise.all([
+        fetch('/api/products', { cache: 'no-store' }).catch(() => null),
+        fetch('/api/transactions', { cache: 'no-store' }).catch(() => null),
       ]);
 
-      if (prodRes) {
+      if (prodRes && prodRes.ok) {
         const prodData = await prodRes.json();
         if (prodData.success) {
           const allProds: Product[] = prodData.products || [];
@@ -139,48 +174,7 @@ export default function ChemicalSystemPage() {
         }
       }
 
-      // --- ส่วนที่แก้ไขปัญหาลูกค้าไม่ขึ้น ---
-      // 1. ใช้ตัวแปรพักข้อมูลก่อน
-      let fetchedCustomers: Customer[] = [];
-      
-      // ดึงข้อมูลลูกค้าผ่าน API /api/customers 
-      if (custRes) {
-        try {
-          const custData = await custRes.json();
-          if (Array.isArray(custData)) {
-            fetchedCustomers = custData;
-          } else if (custData.success && Array.isArray(custData.customers)) {
-            fetchedCustomers = custData.customers;
-          } else if (custData.success && Array.isArray(custData.data)) {
-            fetchedCustomers = custData.data;
-          } else if (Array.isArray(custData.data)) {
-            fetchedCustomers = custData.data;
-          }
-        } catch (err) {
-          console.error('API /api/customers parse error:', err);
-        }
-      }
-
-      // 2. ถ้า API ล่ม หรือไม่ได้ข้อมูล ให้ดึงตรงจาก Supabase ทันที
-      if (fetchedCustomers.length === 0) {
-        console.log("Fetching customers directly from Supabase...");
-        const { data: sbCusts, error: sbError } = await supabase
-          .from('customers')
-          .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
-          .order('customer_id', { ascending: true });
-
-        if (sbError) {
-          console.error('Supabase fetch error:', sbError);
-        } else if (sbCusts && sbCusts.length > 0) {
-          fetchedCustomers = sbCusts;
-        }
-      }
-
-      // 3. นำข้อมูลที่ได้ไปใส่ใน State ครั้งเดียว
-      setCustomers(fetchedCustomers);
-      // ------------------------------------
-
-      if (txRes) {
+      if (txRes && txRes.ok) {
         const txData = await txRes.json();
         if (txData.success) {
           setTransactions(txData.transactions || []);
