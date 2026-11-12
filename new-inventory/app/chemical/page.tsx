@@ -49,6 +49,7 @@ export default function ChemicalSystemPage() {
   const [batchRemark, setBatchRemark] = useState<string>('');
 
   // Form State: Sub-tab B (Delivery Order)
+  const [deliveryType, setDeliveryType] = useState<'MIXED' | 'CONCENTRATE'>('MIXED');
   const [deliveryProductId, setDeliveryProductId] = useState<number | ''>('');
   const [deliveryQty, setDeliveryQty] = useState<number>(1);
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | ''>('');
@@ -57,6 +58,25 @@ export default function ChemicalSystemPage() {
 
   // Filter State for History
   const [historySearch, setHistorySearch] = useState<string>('');
+
+  // ฟังก์ชันช่วยเช็กว่าเป็น "น้ำยาผสมแล้ว" หรือไม่ (อิงจากชื่อสินค้าและโมเดลที่คุณตั้งไว้)
+  const isMixedChemical = (p: Product) => {
+    const name = (p.productName || '').toLowerCase();
+    const model = (p.productModelCode || '').toLowerCase();
+    return name.includes('ผสม') || model.includes('(mix)');
+  };
+
+  // ฟังก์ชันช่วยเช็กว่าเป็นสินค้ากลุ่มน้ำยาเคมีภัณฑ์ทั้งหมด
+  const isAnyChemical = (p: Product) => {
+    const name = (p.productName || '').toLowerCase();
+    return (
+      p.categoryId === 5 ||
+      p.categoryId === 107 ||
+      name.includes('น้ำยา') ||
+      name.includes('หัวเชื้อ') ||
+      name.includes('แกลลอน')
+    );
+  };
 
   useEffect(() => {
     fetchData();
@@ -76,12 +96,11 @@ export default function ChemicalSystemPage() {
         if (prodData.success) {
           const allProds: Product[] = prodData.products || [];
           setProducts(allProds);
-          
-          const firstChemical = allProds.find(
-            (p) => p.categoryId === 5 || (p.productName || '').includes('หัวเชื้อ') || (p.productName || '').includes('น้ำยา')
-          );
-          if (firstChemical && !selectedSourceId) {
-            setSelectedSourceId(firstChemical.productId);
+
+          // เลือกหัวเชื้อตัวแรกเป็นค่าเริ่มต้นใน Sub-tab A
+          const firstConcentrate = allProds.find((p) => isAnyChemical(p) && !isMixedChemical(p));
+          if (firstConcentrate && !selectedSourceId) {
+            setSelectedSourceId(firstConcentrate.productId);
           }
         }
       }
@@ -104,6 +123,14 @@ export default function ChemicalSystemPage() {
     }
     setLoading(false);
   };
+
+  // แยกกลุ่มสินค้าชัดเจน: หัวเชื้อ vs น้ำยาผสมแล้ว
+  const allChemicals = products.filter(isAnyChemical);
+  const concentrateProducts = allChemicals.filter((p) => !isMixedChemical(p));
+  const mixedProducts = allChemicals.filter((p) => isMixedChemical(p));
+
+  // รายการที่จะแสดงใน Dropdown ของ Sub-tab B ตามตัวเลือกที่ติ๊ก
+  const currentDeliveryOptions = deliveryType === 'MIXED' ? mixedProducts : concentrateProducts;
 
   // Sub-tab A: บันทึกการผสมน้ำยากลาง
   const handleMixingSubmit = async (e: React.FormEvent) => {
@@ -138,12 +165,15 @@ export default function ChemicalSystemPage() {
     setIsSubmitting(false);
   };
 
-  // Sub-tab B: บันทึกเปิดบิลจัดส่งน้ำยาให้ลูกค้า (เชื่อม API /api/chemical/delivery)
+  // Sub-tab B: บันทึกเปิดบิลจัดส่งน้ำยาให้ลูกค้า
   const handleDeliverySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deliveryProductId) return alert('กรุณาเลือกผลิตภัณฑ์น้ำยาที่ต้องการจัดส่ง');
     if (deliveryQty <= 0) return alert('กรุณาระบุจำนวนมากกว่า 0');
     if (!selectedCustomerId) return alert('กรุณาเลือกร้านค้าลูกค้าผู้รับน้ำยา');
+
+    const typePrefix = deliveryType === 'MIXED' ? '[น้ำยาผสมแล้ว]' : '[หัวเชื้อ]';
+    const combinedRemark = `${typePrefix} ${deliveryRemark}`.trim();
 
     setIsSubmitting(true);
     try {
@@ -155,7 +185,7 @@ export default function ChemicalSystemPage() {
           quantity: Number(deliveryQty),
           customerId: Number(selectedCustomerId),
           referenceNo: deliveryRef,
-          remark: deliveryRemark,
+          remark: combinedRemark,
         })
       });
       const data = await res.json();
@@ -174,20 +204,12 @@ export default function ChemicalSystemPage() {
     setIsSubmitting(false);
   };
 
-  // กรองรายการสินค้าที่เป็นหมวดน้ำยาเคมีภัณฑ์
-  const chemicalProducts = products.filter(
-    (p) =>
-      p.categoryId === 5 ||
-      (p.productName || '').toLowerCase().includes('น้ำยา') ||
-      (p.productName || '').toLowerCase().includes('หัวเชื้อ') ||
-      (p.productName || '').toLowerCase().includes('แกลลอน')
-  );
-
   // กรองประวัติการทำรายการเฉพาะที่เกี่ยวกับน้ำยาเคมีภัณฑ์
   const chemicalHistory = transactions.filter((tx) => {
     const pName = (tx.product?.productName || '').toLowerCase();
     const isChem =
       tx.product?.categoryId === 5 ||
+      tx.product?.categoryId === 107 ||
       pName.includes('น้ำยา') ||
       pName.includes('หัวเชื้อ') ||
       pName.includes('แกลลอน') ||
@@ -266,7 +288,7 @@ export default function ChemicalSystemPage() {
             <strong className="text-white font-bold block mb-0.5">หลักการทำงานของระบบน้ำยา:</strong>
             {activeTab === 'mixing'
               ? 'เบิกหัวเชื้อน้ำยาออกจากคลังโดย ไม่ต้องระบุชื่อร้านค้าลูกค้า ระบบจะตัดสต็อกหัวเชื้อบริสุทธิ์ (OUT) และคำนวณอัตราส่วนเพื่อเพิ่มสต็อกน้ำยาผสมสำเร็จเข้าคลัง (IN) ให้อัตโนมัติพร้อมคำนวณเฉลี่ยต้นทุนต่อถัง'
-              : 'เลือกผลิตภัณฑ์น้ำยาสำเร็จรูปที่ผสมเสร็จแล้ว จากนั้นเลือกร้านค้าลูกค้าปลายทาง ระบบจะทำการตัดสต็อกแบบ FIFO (หยิบ Lot เก่าออกก่อน) ทันทีเมื่อกดยืนยันจัดส่ง'}
+              : 'เลือกประเภทน้ำยา (น้ำยาผสมแล้ว หรือ หัวเชื้อ) จากนั้นเลือกรายการและร้านค้าลูกค้าปลายทาง ระบบจะตัดสต็อกแบบ FIFO อัตโนมัติพร้อมแยกบันทึกประวัติชัดเจน'}
           </div>
         </div>
 
@@ -287,16 +309,16 @@ export default function ChemicalSystemPage() {
                     onChange={(e) => setSelectedSourceId(Number(e.target.value))}
                   >
                     <option value="" disabled>-- เลือกหัวเชื้อน้ำยา --</option>
-                    {chemicalProducts.map((p) => (
+                    {concentrateProducts.map((p) => (
                       <option key={p.productId} value={p.productId}>
-                        {p.productName} (คงเหลือ: {p.stockQty ?? 0} {p.unitName || 'ถัง/แกลลอน'})
+                        {p.productName} {p.productModelCode ? `(${p.productModelCode})` : ''} — คงเหลือ: {p.stockQty ?? 0} {p.unitName || 'แกลลอน'}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">2. จำนวนหัวเชื้อที่เบิก (ถัง/แกลลอน) *</label>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">2. จำนวนหัวเชื้อที่เบิก (แกลลอน) *</label>
                   <input
                     type="number"
                     min="1"
@@ -321,7 +343,7 @@ export default function ChemicalSystemPage() {
                 {!isDilutionProcess && (
                   <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-300 flex items-center gap-2">
                     <AlertTriangle size={16} className="shrink-0" />
-                    <span>เบิกน้ำยาสำเร็จรูป/สินค้าเดิมออกไปเตรียมไว้โดย ไม่ผ่านกระบวนการผสมน้ำ</span>
+                    <span>เบิกน้ำยาออกไปเตรียมไว้โดย ไม่ผ่านกระบวนการผสมน้ำ</span>
                   </div>
                 )}
               </div>
@@ -353,25 +375,86 @@ export default function ChemicalSystemPage() {
             </h2>
 
             <form onSubmit={handleDeliverySubmit} className="space-y-5">
+              {/* 1. ติ๊กเลือกประเภทน้ำยาก่อนจัดส่ง */}
+              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5">
+                <label className="block text-xs md:text-sm text-slate-400 font-medium">
+                  1. เลือกประเภทน้ำยาที่ต้องการจัดส่ง *
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label
+                    onClick={() => {
+                      setDeliveryType('MIXED');
+                      setDeliveryProductId('');
+                    }}
+                    className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                      deliveryType === 'MIXED'
+                        ? 'bg-emerald-600/20 border-emerald-500 text-white font-bold'
+                        : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="deliveryType"
+                      checked={deliveryType === 'MIXED'}
+                      onChange={() => {}}
+                      className="w-4 h-4 accent-emerald-500"
+                    />
+                    <div>
+                      <div className="text-sm">🧪 น้ำยาผสมแล้ว (Mix)</div>
+                      <div className="text-[11px] font-normal text-slate-400">ตัดสต็อกรายการน้ำยาที่ผสมพร้อมใช้งาน ({mixedProducts.length} รายการ)</div>
+                    </div>
+                  </label>
+
+                  <label
+                    onClick={() => {
+                      setDeliveryType('CONCENTRATE');
+                      setDeliveryProductId('');
+                    }}
+                    className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                      deliveryType === 'CONCENTRATE'
+                        ? 'bg-amber-600/20 border-amber-500 text-white font-bold'
+                        : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="deliveryType"
+                      checked={deliveryType === 'CONCENTRATE'}
+                      onChange={() => {}}
+                      className="w-4 h-4 accent-amber-500"
+                    />
+                    <div>
+                      <div className="text-sm">💧 หัวเชื้อน้ำยา (Pure)</div>
+                      <div className="text-[11px] font-normal text-slate-400">ตัดสต็อกแกลลอนหัวเชื้อโดยตรง ({concentrateProducts.length} รายการ)</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* 2. เลือกรายการน้ำยา & จำนวน */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">เลือกผลิตภัณฑ์น้ำยาสำเร็จรูป *</label>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                    2. เลือก{deliveryType === 'MIXED' ? 'น้ำยาผสมแล้ว' : 'หัวเชื้อน้ำยา'} *
+                  </label>
                   <select
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
                     value={deliveryProductId}
                     onChange={(e) => setDeliveryProductId(Number(e.target.value))}
                   >
-                    <option value="" disabled>-- เลือกน้ำยาสำหรับจัดส่ง --</option>
-                    {chemicalProducts.map((p) => (
+                    <option value="" disabled>
+                      -- เลือก{deliveryType === 'MIXED' ? 'น้ำยาผสมแล้ว' : 'หัวเชื้อ'}สำหรับจัดส่ง --
+                    </option>
+                    {currentDeliveryOptions.map((p) => (
                       <option key={p.productId} value={p.productId}>
-                        {p.productName} (คงเหลือ: {p.stockQty ?? 0} {p.unitName || 'ถัง/แกลลอน'})
+                        #{p.productId} {p.productName} {p.productModelCode ? `[${p.productModelCode}]` : ''} — คงเหลือ: {p.stockQty ?? 0} {p.unitName || 'ถัง'}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">จำนวนที่จัดส่ง *</label>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">3. จำนวนที่จัดส่ง *</label>
                   <input
                     type="number"
                     min="1"
@@ -382,9 +465,10 @@ export default function ChemicalSystemPage() {
                 </div>
               </div>
 
+              {/* 3. เลือกร้านค้าลูกค้า & เลขที่ใบส่งของ */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">เลือกร้านค้า / ลูกค้าผู้รับน้ำยา *</label>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">4. เลือกร้านค้า / ลูกค้าผู้รับน้ำยา *</label>
                   <select
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
                     value={selectedCustomerId}
@@ -400,7 +484,7 @@ export default function ChemicalSystemPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">เลขที่ใบส่งของ (Delivery No.)</label>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">5. เลขที่ใบส่งของ (Delivery No.)</label>
                   <input
                     type="text"
                     placeholder="เช่น DO-2026-001 (ปล่อยว่างเพื่อสร้างอัตโนมัติ)"
@@ -412,7 +496,7 @@ export default function ChemicalSystemPage() {
               </div>
 
               <div>
-                <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">หมายเหตุการจัดส่ง</label>
+                <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">6. หมายเหตุการจัดส่ง</label>
                 <input
                   type="text"
                   placeholder="เช่น จัดส่งรอบประจำสัปดาห์..."
@@ -433,8 +517,8 @@ export default function ChemicalSystemPage() {
           </div>
         )}
 
-        {/* Live Stock Monitor Summary */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+        {/* Live Stock Monitor Summary (แยกแสดง หัวเชื้อ vs น้ำยาผสมแล้ว ชัดเจน) */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-6">
           <div className="flex justify-between items-center">
             <h3 className="font-bold text-base text-white flex items-center gap-2">
               <Database className="text-indigo-400" size={18} /> สต็อกคลังสินค้าล่าสุด (Live Stock Monitor)
@@ -442,22 +526,47 @@ export default function ChemicalSystemPage() {
             <span className="px-2.5 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-lg text-xs font-bold">Realtime</span>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {loading ? (
-              <div className="col-span-full py-8 text-center text-slate-500 text-sm">กำลังโหลดข้อมูลสต็อก...</div>
-            ) : chemicalProducts.length === 0 ? (
-              <div className="col-span-full py-8 text-center text-slate-500 text-sm">ไม่พบรายการน้ำยาในคลังสินค้า</div>
-            ) : (
-              chemicalProducts.map((p) => (
-                <div key={p.productId} className="bg-slate-950 border border-slate-800/80 rounded-xl p-4 space-y-1">
-                  <div className="text-slate-400 text-xs truncate" title={p.productName}>{p.productName}</div>
-                  <div className={`text-xl font-extrabold font-mono ${(p.stockQty ?? 0) > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {p.stockQty ?? 0} <span className="text-xs font-normal text-slate-400">{p.unitName || 'ถัง'}</span>
-                  </div>
+          {loading ? (
+            <div className="py-8 text-center text-slate-500 text-sm">กำลังโหลดข้อมูลสต็อก...</div>
+          ) : (
+            <div className="space-y-5">
+              {/* กลุ่มที่ 1: สต็อกน้ำยาผสมแล้ว */}
+              <div>
+                <div className="text-xs font-bold text-emerald-400 mb-2.5 flex items-center gap-1.5">
+                  🧪 สต็อกน้ำยาผสมแล้ว (พร้อมจัดส่งลูกค้า)
                 </div>
-              ))
-            )}
-          </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {mixedProducts.map((p) => (
+                    <div key={p.productId} className="bg-slate-950 border border-emerald-500/20 rounded-xl p-4 space-y-1">
+                      <div className="text-slate-300 text-xs font-medium truncate" title={p.productName}>{p.productName}</div>
+                      <div className="text-[10px] text-slate-500 font-mono truncate">{p.productModelCode || '-'}</div>
+                      <div className={`text-xl font-extrabold font-mono pt-1 ${(p.stockQty ?? 0) > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {p.stockQty ?? 0} <span className="text-xs font-normal text-slate-400">{p.unitName || 'ถัง'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* กลุ่มที่ 2: สต็อกหัวเชื้อ */}
+              <div>
+                <div className="text-xs font-bold text-amber-400 mb-2.5 flex items-center gap-1.5">
+                  💧 สต็อกหัวเชื้อตั้งต้น (Pure)
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {concentrateProducts.map((p) => (
+                    <div key={p.productId} className="bg-slate-950 border border-amber-500/20 rounded-xl p-4 space-y-1">
+                      <div className="text-slate-300 text-xs font-medium truncate" title={p.productName}>{p.productName}</div>
+                      <div className="text-[10px] text-slate-500 font-mono truncate">{p.productModelCode || '-'}</div>
+                      <div className={`text-xl font-extrabold font-mono pt-1 ${(p.stockQty ?? 0) > 0 ? 'text-amber-400' : 'text-rose-400'}`}>
+                        {p.stockQty ?? 0} <span className="text-xs font-normal text-slate-400">{p.unitName || 'แกลลอน'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Chemical Transaction History Table */}
@@ -484,7 +593,7 @@ export default function ChemicalSystemPage() {
                 <tr className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase">
                   <th className="p-3.5">วันเวลา</th>
                   <th className="p-3.5">เลขที่อ้างอิง</th>
-                  <th className="p-3.5">รายการน้ำยา</th>
+                  <th className="p-3.5">ประเภท / รายการน้ำยา</th>
                   <th className="p-3.5 text-center">จำนวน</th>
                   <th className="p-3.5">รายละเอียด / ลูกค้า</th>
                 </tr>
@@ -499,27 +608,39 @@ export default function ChemicalSystemPage() {
                     <td colSpan={5} className="p-8 text-center text-slate-500">ยังไม่มีประวัติการทำรายการน้ำยา</td>
                   </tr>
                 ) : (
-                  chemicalHistory.slice(0, 15).map((tx) => (
-                    <tr key={tx.transactionId} className="hover:bg-slate-800/40 transition">
-                      <td className="p-3.5 font-mono text-slate-400 whitespace-nowrap">
-                        {new Date(tx.transactionDate).toLocaleString('th-TH')}
-                      </td>
-                      <td className="p-3.5 font-mono font-bold text-indigo-400 whitespace-nowrap">
-                        {tx.referenceNo || '-'}
-                      </td>
-                      <td className="p-3.5 font-medium text-white">
-                        {tx.product?.productName || '-'}
-                      </td>
-                      <td className="p-3.5 text-center font-bold">
-                        <span className={`px-2 py-0.5 rounded ${tx.transactionType === 'IN' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                          {tx.transactionType === 'IN' ? '+' : '-'}{tx.quantity}
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-slate-400">
-                        {tx.remark || '-'}
-                      </td>
-                    </tr>
-                  ))
+                  chemicalHistory.slice(0, 15).map((tx) => {
+                    const isMixed = tx.product ? isMixedChemical(tx.product) : false;
+                    return (
+                      <tr key={tx.transactionId} className="hover:bg-slate-800/40 transition">
+                        <td className="p-3.5 font-mono text-slate-400 whitespace-nowrap">
+                          {new Date(tx.transactionDate).toLocaleString('th-TH')}
+                        </td>
+                        <td className="p-3.5 font-mono font-bold text-indigo-400 whitespace-nowrap">
+                          {tx.referenceNo || '-'}
+                        </td>
+                        <td className="p-3.5 font-medium text-white">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              isMixed
+                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                            }`}>
+                              {isMixed ? 'น้ำยาผสม' : 'หัวเชื้อ'}
+                            </span>
+                            <span>{tx.product?.productName || '-'}</span>
+                          </div>
+                        </td>
+                        <td className="p-3.5 text-center font-bold">
+                          <span className={`px-2 py-0.5 rounded ${tx.transactionType === 'IN' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                            {tx.transactionType === 'IN' ? '+' : '-'}{tx.quantity}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-slate-400">
+                          {tx.remark || '-'}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
