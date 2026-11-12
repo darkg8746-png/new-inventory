@@ -122,6 +122,7 @@ export default function ChemicalSystemPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
+      // 1. ดึงข้อมูลสินค้าและประวัติผ่าน API ปกติ
       const [prodRes, custRes, txRes, empRes] = await Promise.all([
         fetch('/api/products').catch(() => null),
         fetch('/api/customers').catch(() => null),
@@ -142,12 +143,22 @@ export default function ChemicalSystemPage() {
         }
       }
 
+      // ดึงข้อมูลลูกค้า (ลองจาก API ก่อน ถ้าไม่ได้ผล ให้ดึงตรงจาก Supabase)
+      let loadedCustomers: Customer[] = [];
       if (custRes) {
         const custData = await custRes.json();
-        if (custData.success) {
-          setCustomers(custData.customers || custData.data || []);
+        if (custData.success && (custData.customers || custData.data)) {
+          loadedCustomers = custData.customers || custData.data;
         }
       }
+
+      if (loadedCustomers.length === 0) {
+        const { data: sbCusts } = await supabase.from('customers').select('*');
+        if (sbCusts && sbCusts.length > 0) {
+          loadedCustomers = sbCusts;
+        }
+      }
+      setCustomers(loadedCustomers);
 
       if (txRes) {
         const txData = await txRes.json();
@@ -156,12 +167,23 @@ export default function ChemicalSystemPage() {
         }
       }
 
+      // ดึงข้อมูลพนักงาน (ลองจาก API ก่อน ถ้าไม่ได้ผล ให้ดึงจาก Supabase)
+      let loadedEmployees: Employee[] = [];
       if (empRes) {
         const empData = await empRes.json();
-        if (empData.success) {
-          setEmployees(empData.employees || []);
+        if (empData.success && empData.employees) {
+          loadedEmployees = empData.employees;
         }
       }
+
+      if (loadedEmployees.length === 0) {
+        const { data: sbEmps } = await supabase.from('employees').select('*');
+        if (sbEmps && sbEmps.length > 0) {
+          loadedEmployees = sbEmps;
+        }
+      }
+      setEmployees(loadedEmployees);
+
     } catch (error) {
       console.error('Error fetching chemical system data:', error);
     }
@@ -227,7 +249,9 @@ export default function ChemicalSystemPage() {
     if (batchQty <= 0) return alert('กรุณาระบุจำนวนมากกว่า 0');
     if (!selectedEmployeeId) return alert('กรุณาเลือกพนักงานผู้เบิกจากรายการ');
 
-    const selectedEmp = employees.find((emp) => emp.employeeId === Number(selectedEmployeeId));
+    const selectedEmp = employees.find(
+      (emp) => (emp.employeeId || emp.id) === Number(selectedEmployeeId)
+    );
     const empName = selectedEmp
       ? `${selectedEmp.firstName || selectedEmp.name || ''} ${selectedEmp.lastName || ''}`.trim()
       : `ID: ${selectedEmployeeId}`;
@@ -511,12 +535,21 @@ export default function ChemicalSystemPage() {
                   <option value="" disabled>
                     -- กรุณาเลือกพนักงานผู้เบิกจากรายชื่อ --
                   </option>
-                  {employees.map((emp) => (
-                    <option key={emp.employeeId} value={emp.employeeId}>
-                      #{emp.employeeId} - {emp.firstName || emp.name || ''} {emp.lastName || ''}
-                    </option>
-                  ))}
+                  {employees.map((emp, idx) => {
+                    const empId = emp.employeeId ?? emp.id ?? idx + 1;
+                    const empName = `${emp.firstName || emp.name || ''} ${emp.lastName || ''}`.trim() || `พนักงาน #${empId}`;
+                    return (
+                      <option key={empId} value={empId}>
+                        #{empId} - {empName}
+                      </option>
+                    );
+                  })}
                 </select>
+                {employees.length === 0 && (
+                  <p className="text-[11px] text-amber-400 mt-1">
+                    * ไม่พบรายชื่อพนักงานในระบบ (กรุณาตรวจสอบตารางพนักงานใน Supabase)
+                  </p>
+                )}
               </div>
 
               {/* 4. หมายเหตุบันทึกคลัง */}
@@ -669,7 +702,7 @@ export default function ChemicalSystemPage() {
                       -- เลือกลูกค้า --
                     </option>
                     {customers.map((c, index) => {
-                      const cId = c.customer_id ?? c.id ?? c.customerId ?? index;
+                      const cId = c.customer_id ?? c.id ?? c.customerId ?? index + 1;
                       const cName = c.customer_name ?? c.name ?? c.companyName ?? `ลูกค้า #${cId}`;
                       return (
                         <option key={cId} value={cId}>
@@ -680,7 +713,7 @@ export default function ChemicalSystemPage() {
                   </select>
                   {customers.length === 0 && (
                     <p className="text-[11px] text-amber-400 mt-1">
-                      * ไม่พบรายชื่อลูกค้าในระบบ (กรุณาตรวจสอบ API /api/customers)
+                      * ไม่พบรายชื่อลูกค้า (กรุณาตรวจสอบตาราง customers ใน Supabase)
                     </p>
                   )}
                 </div>
