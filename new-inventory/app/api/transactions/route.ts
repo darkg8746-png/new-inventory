@@ -3,9 +3,6 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// ==========================================
-// 📥 1. ฟังก์ชัน GET: ดึงประวัติ พร้อมเชื่อมข้อมูล Lot Breakdown มาด้วย
-// ==========================================
 export async function GET() {
   try {
     const transactions = await prisma.inventoryTransactions.findMany({
@@ -13,28 +10,21 @@ export async function GET() {
       include: {
         product: true,
         lotDetails: { 
-          include: {
-            lot: true
-          }
+          include: { lot: true }
         }
       },
       take: 100,
     });
-    
     return NextResponse.json({ success: true, transactions });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
-// ==========================================
-// 📤 2. ฟังก์ชัน POST: รับเข้า / เบิกออก / ผสมน้ำยา (1:2)
-// ==========================================
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { transactionType, referenceNo, remark, employeeId, supplierId, transactionDate, items } = body;
-
     const txDateObj = transactionDate ? new Date(transactionDate) : new Date();
 
     const result = await prisma.$transaction(async (tx) => {
@@ -44,7 +34,6 @@ export async function POST(req: Request) {
         const { productId, quantity, unitCost = 0, expireDate = null, yieldQty } = item;
         const qtyToProcess = Number(quantity);
         
-        // ดึงข้อมูลสินค้า
         const productInfo = await tx.productsCatalog.findUnique({
           where: { productId: Number(productId) },
           include: { category: true }
@@ -54,7 +43,6 @@ export async function POST(req: Request) {
           throw new Error(`ไม่พบข้อมูลสินค้า ID ${productId} ในระบบ`);
         }
 
-        // 1. สร้างหัวบิลประวัติหลัก (สำหรับ MIXING จะบันทึกเป็น OUT ของหัวเชื้อ)
         const mainTxType = transactionType === 'MIXING' ? 'OUT' : transactionType;
 
         const newTx = await tx.inventoryTransactions.create({
@@ -73,7 +61,7 @@ export async function POST(req: Request) {
         mainTxIds.push(newTx.transactionId);
 
         if (transactionType === 'IN') {
-          // --- กรณีรับเข้า (IN): สร้าง Lot ใหม่ ---
+          // --- กรณีรับเข้า (IN): สร้าง Lot ใหม่พร้อมสถานะ Active ชัดเจน ---
           const newLot = await tx.productLots.create({
             data: {
               productId: Number(productId),
@@ -81,6 +69,7 @@ export async function POST(req: Request) {
               unitCost: Number(unitCost),
               originalQty: qtyToProcess,
               remainingQty: qtyToProcess,
+              lotStatus: 'Active',
               receiveDate: txDateObj,
               expireDate: expireDate ? new Date(expireDate) : null,
             }
@@ -95,31 +84,22 @@ export async function POST(req: Request) {
             }
           });
 
-          // อัปเดตบวกยอดสต็อกรวมในตารางสินค้าหลัก
           await tx.productsCatalog.update({
             where: { productId: Number(productId) },
             data: { stockQty: { increment: qtyToProcess } }
           });
 
-          // ป้องกันไม่ให้อะไหล่สิ้นเปลือง และ กลุ่มน้ำยาเคมี ไปสร้าง MachinesAssets
           const productName = (productInfo?.productName || '').toLowerCase();
           const categoryName = (productInfo?.category?.categoryName || '').toLowerCase();
           const catId = Number(productInfo?.categoryId);
           
           const isNonMachineItem = 
-            catId === 5 ||
-            catId === 107 ||
-            productName.includes('ไส้กรอง') || 
-            productName.includes('โอริง') || 
-            productName.includes('สายยาง') || 
-            productName.includes('ข้อต่อ') || 
-            productName.includes('น้ำยา') || 
-            productName.includes('หัวเชื้อ') || 
-            productName.includes('แกลลอน') || 
-            productName.includes('ใบมีด') || 
-            categoryName.includes('อะไหล่') ||
-            categoryName.includes('สิ้นเปลือง') ||
-            categoryName.includes('น้ำยา');
+            catId === 5 || catId === 107 ||
+            productName.includes('ไส้กรอง') || productName.includes('โอริง') || 
+            productName.includes('สายยาง') || productName.includes('ข้อต่อ') || 
+            productName.includes('น้ำยา') || productName.includes('หัวเชื้อ') || 
+            productName.includes('แกลลอน') || productName.includes('ใบมีด') || 
+            categoryName.includes('อะไหล่') || categoryName.includes('สิ้นเปลือง') || categoryName.includes('น้ำยา');
 
           if (!isNonMachineItem) {
             const assetDataList = [];
@@ -135,29 +115,39 @@ export async function POST(req: Request) {
               });
             }
             if (assetDataList.length > 0) {
-              await tx.machinesAssets.createMany({
-                data: assetDataList,
-                skipDuplicates: true
-              });
+              await tx.machinesAssets.createMany({ data: assetDataList, skipDuplicates: true });
             }
           }
 
         } else if (transactionType === 'OUT') {
-          // --- กรณีเบิกออก (OUT): ตัดสต็อกแบบ FIFO ---
           let qtyNeeded = qtyToProcess;
+          const currentStock = Number(productInfo.stockQty ?? 0);
           
-          const availableLots = await tx.productLots.findMany({
+          let availableLots = await tx.productLots.findMany({
             where: { 
               productId: Number(productId),
-              remainingQty: { gt: 0 },
-              lotStatus: 'Active'
+              remainingQty: { gt: 0 }
             },
             orderBy: { receiveDate: 'asc' }
           });
 
+          if (availableLots.length === 0 && currentStock >= qtyNeeded) {
+            const fallbackLot = await tx.productLots.create({
+              data: {
+                productId: Number(productId),
+                lotNumber: `AUTO-LOT-${Date.now()}`,
+                unitCost: Number(productInfo.unitCost || 0),
+                originalQty: currentStock,
+                remainingQty: currentStock,
+                lotStatus: 'Active',
+                receiveDate: new Date(),
+              }
+            });
+            availableLots = [fallbackLot];
+          }
+
           for (const lot of availableLots) {
             if (qtyNeeded <= 0) break;
-
             const takeQty = Math.min(qtyNeeded, lot.remainingQty);
             qtyNeeded -= takeQty;
 
@@ -175,7 +165,7 @@ export async function POST(req: Request) {
                 transactionId: newTx.transactionId,
                 lotId: lot.lotId,
                 quantityUsed: takeQty,
-                costApplied: lot.unitCost,
+                costApplied: Number(lot.unitCost),
               }
             });
           }
@@ -184,34 +174,42 @@ export async function POST(req: Request) {
             throw new Error(`สินค้า "${productInfo.productName}" สต็อกในระบบไม่พอเบิกครับ (ขาดอีก ${qtyNeeded} ชิ้น)`);
           }
 
-          // อัปเดตลดสต็อกรวมในตารางสินค้าหลัก
           await tx.productsCatalog.update({
             where: { productId: Number(productId) },
             data: { stockQty: { decrement: qtyToProcess } }
           });
 
         } else if (transactionType === 'MIXING') {
-          // =========================================================================
-          // 🧪 กรณีผสมน้ำยา (MIXING): 1 ถังหัวเชื้อ -> 2 ถังผสม (สูตร 1:2)
-          // =========================================================================
           const mixedOutputQty = yieldQty ? Number(yieldQty) : qtyToProcess * 2;
-
-          // ขั้นที่ 1: ตัดสต็อกหัวเชื้อออก (FIFO) และคำนวณต้นทุนรวมของหัวเชื้อที่ใช้ไป
           let qtyNeeded = qtyToProcess;
           let totalConcentrateCost = 0;
+          const currentStock = Number(productInfo.stockQty ?? 0);
 
-          const availableLots = await tx.productLots.findMany({
+          let availableLots = await tx.productLots.findMany({
             where: { 
               productId: Number(productId),
-              remainingQty: { gt: 0 },
-              lotStatus: 'Active'
+              remainingQty: { gt: 0 }
             },
             orderBy: { receiveDate: 'asc' }
           });
 
+          if (availableLots.length === 0 && currentStock >= qtyNeeded) {
+            const fallbackLot = await tx.productLots.create({
+              data: {
+                productId: Number(productId),
+                lotNumber: `AUTO-LOT-${Date.now()}`,
+                unitCost: Number(productInfo.unitCost || 0),
+                originalQty: currentStock,
+                remainingQty: currentStock,
+                lotStatus: 'Active',
+                receiveDate: new Date(),
+              }
+            });
+            availableLots = [fallbackLot];
+          }
+
           for (const lot of availableLots) {
             if (qtyNeeded <= 0) break;
-
             const takeQty = Math.min(qtyNeeded, lot.remainingQty);
             qtyNeeded -= takeQty;
             totalConcentrateCost += (takeQty * Number(lot.unitCost || 0));
@@ -230,7 +228,7 @@ export async function POST(req: Request) {
                 transactionId: newTx.transactionId,
                 lotId: lot.lotId,
                 quantityUsed: takeQty,
-                costApplied: lot.unitCost,
+                costApplied: Number(lot.unitCost),
               }
             });
           }
@@ -239,13 +237,11 @@ export async function POST(req: Request) {
             throw new Error(`หัวเชื้อ "${productInfo.productName}" ในคลังไม่พอผสมครับ (ขาดอีก ${qtyNeeded} ถัง)`);
           }
 
-          // ลดสต็อกหัวเชื้อตั้งต้น
           await tx.productsCatalog.update({
             where: { productId: Number(productId) },
             data: { stockQty: { decrement: qtyToProcess } }
           });
 
-          // ขั้นที่ 2: ค้นหารายการ "น้ำยาผสมแล้ว" ที่คู่กันในระบบ
           const allChemProducts = await tx.productsCatalog.findMany({
             where: {
               OR: [
@@ -256,10 +252,7 @@ export async function POST(req: Request) {
           });
 
           const srcModel = (productInfo.productModelCode || '').trim();
-          const srcBaseName = (productInfo.productName || '')
-            .replace(/หัวเชื้อ/g, '')
-            .replace(/\(Pure\)/gi, '')
-            .trim();
+          const srcBaseName = (productInfo.productName || '').replace(/หัวเชื้อ/g, '').replace(/\(Pure\)/gi, '').trim();
 
           const mixedCandidates = allChemProducts.filter(p => {
             if (p.productId === productInfo.productId) return false;
@@ -281,10 +274,9 @@ export async function POST(req: Request) {
           }
 
           if (!targetMixedProduct) {
-            throw new Error(`ไม่พบรายการสินค้า "น้ำยาผสมแล้ว" ที่คู่กับ "${productInfo.productName}" ในคลัง (กรุณาสร้างรายการสินค้าที่มีคำว่า "ผสม" หรือรหัสรุ่นต่อท้ายด้วย (MIX) ก่อนครับ)`);
+            throw new Error(`ไม่พบรายการสินค้า "น้ำยาผสมแล้ว" ที่คู่กับ "${productInfo.productName}" ในคลัง`);
           }
 
-          // ขั้นที่ 3: รับเข้า (IN) สำหรับน้ำยาผสม จำนวน 2 เท่า (mixedOutputQty)
           const costPerMixedUnit = mixedOutputQty > 0 ? (totalConcentrateCost / mixedOutputQty) : 0;
 
           const mixedInTx = await tx.inventoryTransactions.create({
@@ -306,6 +298,7 @@ export async function POST(req: Request) {
               unitCost: costPerMixedUnit,
               originalQty: mixedOutputQty,
               remainingQty: mixedOutputQty,
+              lotStatus: 'Active',
               receiveDate: txDateObj,
             }
           });
@@ -319,7 +312,6 @@ export async function POST(req: Request) {
             }
           });
 
-          // เพิ่มสต็อกน้ำยาผสมเข้าตารางสินค้าหลัก
           await tx.productsCatalog.update({
             where: { productId: targetMixedProduct.productId },
             data: { stockQty: { increment: mixedOutputQty } }
@@ -327,10 +319,7 @@ export async function POST(req: Request) {
         }
       }
       return mainTxIds;
-    }, {
-      maxWait: 10000, 
-      timeout: 20000  
-    });
+    }, { maxWait: 10000, timeout: 20000 });
 
     return NextResponse.json({ success: true, transactionIds: result });
   } catch (error: any) {
