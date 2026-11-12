@@ -22,7 +22,9 @@ import {
 import Link from 'next/link';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://udkicadlthssizksdbaz.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_8OoWzZFM3caJMLA8dNT3BQ_2VtkTrqA';
+const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVka2ljYWRsdGhzc2l6a3NkYmF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0OTI2NzQsImV4cCI6MjA5MTA2ODY3NH0.T0zzi09kqHG9dGKPTtIJUvRmA02GUbu-UBXKuOBPZ4k';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface Product {
@@ -120,24 +122,38 @@ export default function ChemicalSystemPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // ดึงข้อมูลลูกค้าและดัก Error แสดงผลตรงๆ
+      // แยกดึงข้อมูลลูกค้าตรงๆ เพื่อไม่ให้ติดขัดจาก API ตัวอื่น และป้องกันการแคชค่าเก่า
       try {
         const custRes = await fetch('/api/customers', { cache: 'no-store' });
-        const custData = await custRes.json();
-        console.log('DEBUG /api/customers:', custData);
+        if (custRes.ok) {
+          const custData = await custRes.json();
+          const list = Array.isArray(custData)
+            ? custData
+            : custData.customers || custData.data || [];
 
-        if (Array.isArray(custData)) {
-          setCustomers(custData);
-        } else if (custData?.customers && Array.isArray(custData.customers)) {
-          setCustomers(custData.customers);
-        } else if (custData?.data && Array.isArray(custData.data)) {
-          setCustomers(custData.data);
+          if (list.length > 0) {
+            setCustomers(list);
+          } else {
+            const { data: sbCusts } = await supabase
+              .from('customers')
+              .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
+              .order('customer_id', { ascending: true });
+            if (sbCusts) setCustomers(sbCusts);
+          }
         } else {
-          // ถ้าโครงสร้างไม่ตรง ให้แจ้งเตือนขึ้นมาดูเลยว่า API ส่งอะไรมา
-          alert('โครงสร้าง API ลูกค้าไม่ตรง: ' + JSON.stringify(custData).slice(0, 200));
+          const { data: sbCusts } = await supabase
+            .from('customers')
+            .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
+            .order('customer_id', { ascending: true });
+          if (sbCusts) setCustomers(sbCusts);
         }
-      } catch (e: any) {
-        alert('ดึง API ลูกค้าพัง: ' + e.message);
+      } catch (e) {
+        console.error('Customer fetch failed, falling back to Supabase:', e);
+        const { data: sbCusts } = await supabase
+          .from('customers')
+          .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
+          .order('customer_id', { ascending: true });
+        if (sbCusts) setCustomers(sbCusts);
       }
 
       // ดึงข้อมูลสินค้าและประวัติ
