@@ -17,6 +17,7 @@ import {
   Image as ImageIcon,
   X,
   ExternalLink,
+  UserCheck,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -58,6 +59,7 @@ export default function ChemicalSystemPage() {
   const [activeTab, setActiveTab] = useState<'mixing' | 'delivery'>('mixing');
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -66,6 +68,8 @@ export default function ChemicalSystemPage() {
   const [selectedSourceId, setSelectedSourceId] = useState<number | ''>('');
   const [batchQty, setBatchQty] = useState<number>(1);
   const [isDilutionProcess, setIsDilutionProcess] = useState<boolean>(true);
+  const [batchStaffName, setBatchStaffName] = useState<string>('');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | ''>('');
   const [batchRemark, setBatchRemark] = useState<string>('');
 
   // Form State: Sub-tab B (Delivery Order)
@@ -108,10 +112,11 @@ export default function ChemicalSystemPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [prodRes, custRes, txRes] = await Promise.all([
+      const [prodRes, custRes, txRes, empRes] = await Promise.all([
         fetch('/api/products').catch(() => null),
         fetch('/api/customers').catch(() => null),
         fetch('/api/transactions').catch(() => null),
+        fetch('/api/employees').catch(() => null),
       ]);
 
       if (prodRes) {
@@ -138,6 +143,13 @@ export default function ChemicalSystemPage() {
         const txData = await txRes.json();
         if (txData.success) {
           setTransactions(txData.transactions || []);
+        }
+      }
+
+      if (empRes && empRes.ok) {
+        const empData = await empRes.json();
+        if (empData.success) {
+          setEmployees(empData.employees || []);
         }
       }
     } catch (error) {
@@ -205,6 +217,19 @@ export default function ChemicalSystemPage() {
     e.preventDefault();
     if (!selectedSourceId) return alert('กรุณาเลือกหัวเชื้อน้ำยาตั้งต้น');
     if (batchQty <= 0) return alert('กรุณาระบุจำนวนมากกว่า 0');
+    if (!batchStaffName.trim() && !selectedEmployeeId) {
+      return alert('กรุณาระบุชื่อหรือเลือกพนักงานผู้เบิก');
+    }
+
+    const selectedEmp = employees.find((emp) => emp.employeeId === Number(selectedEmployeeId));
+    const finalStaffText = selectedEmp
+      ? `${selectedEmp.firstName || selectedEmp.name} ${selectedEmp.lastName || ''}`.trim()
+      : batchStaffName.trim();
+
+    const defaultDesc = isDilutionProcess
+      ? 'เบิกผสมน้ำยาคลังกลาง'
+      : 'เบิกน้ำยาสำเร็จรูปโดยไม่ผ่านกระบวนการผสม';
+    const combinedRemark = `[ผู้เบิก: ${finalStaffText}] ${batchRemark.trim() || defaultDesc}`;
 
     setIsSubmitting(true);
     try {
@@ -214,7 +239,8 @@ export default function ChemicalSystemPage() {
         body: JSON.stringify({
           transactionType: isDilutionProcess ? 'MIXING' : 'OUT',
           referenceNo: `BATCH-${Math.floor(100000 + Math.random() * 900000)}`,
-          remark: batchRemark || (isDilutionProcess ? 'เบิกผสมน้ำยาคลังกลาง' : 'เบิกน้ำยาสำเร็จรูปโดยไม่ผ่านกระบวนการผสม'),
+          employeeId: selectedEmployeeId ? Number(selectedEmployeeId) : undefined,
+          remark: combinedRemark,
           items: [{ productId: Number(selectedSourceId), quantity: Number(batchQty) }],
         }),
       });
@@ -257,7 +283,9 @@ export default function ChemicalSystemPage() {
           });
 
         if (uploadError) {
-          throw new Error(`อัปโหลดรูปภาพไม่สำเร็จ: ${uploadError.message} (กรุณาเช็กว่าสร้าง Bucket ชื่อ delivery-photos ใน Supabase แล้ว)`);
+          throw new Error(
+            `อัปโหลดรูปภาพไม่สำเร็จ: ${uploadError.message} (กรุณาเช็กว่าสร้าง Bucket ชื่อ delivery-photos ใน Supabase แล้ว)`
+          );
         }
 
         const { data: publicUrlData } = supabase.storage
@@ -340,7 +368,10 @@ export default function ChemicalSystemPage() {
         {/* Header Bar */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-900/80 p-5 rounded-2xl border border-slate-800 shadow-xl">
           <div className="flex items-center gap-3">
-            <Link href="/" className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition flex items-center gap-1.5 text-sm font-semibold">
+            <Link
+              href="/"
+              className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition flex items-center gap-1.5 text-sm font-semibold"
+            >
               <ArrowLeft size={18} /> กลับหน้าหลัก
             </Link>
             <div className="h-6 w-[1px] bg-slate-800"></div>
@@ -348,7 +379,9 @@ export default function ChemicalSystemPage() {
               <h1 className="text-xl md:text-2xl font-extrabold text-white flex items-center gap-2">
                 <FlaskConical className="text-indigo-400" size={26} /> ระบบจัดการน้ำยาเคมีภัณฑ์ & ผสมสารละลาย
               </h1>
-              <p className="text-slate-400 text-xs md:text-sm mt-0.5">ควบคุมสต็อกน้ำยา จัดการรอบการผสม และตัดสต็อกตามหน้างานจริง</p>
+              <p className="text-slate-400 text-xs md:text-sm mt-0.5">
+                ควบคุมสต็อกน้ำยา จัดการรอบการผสม และตัดสต็อกตามหน้างานจริง
+              </p>
             </div>
           </div>
           <button
@@ -406,23 +439,30 @@ export default function ChemicalSystemPage() {
             <form onSubmit={handleMixingSubmit} className="space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">1. เลือกน้ำยาหัวเชื้อตั้งต้น *</label>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                    1. เลือกน้ำยาหัวเชื้อตั้งต้น *
+                  </label>
                   <select
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-indigo-500 transition cursor-pointer"
                     value={selectedSourceId}
                     onChange={(e) => setSelectedSourceId(Number(e.target.value))}
                   >
-                    <option value="" disabled>-- เลือกหัวเชื้อน้ำยา --</option>
+                    <option value="" disabled>
+                      -- เลือกหัวเชื้อน้ำยา --
+                    </option>
                     {concentrateProducts.map((p) => (
                       <option key={p.productId} value={p.productId}>
-                        {p.productName} {p.productModelCode ? `(${p.productModelCode})` : ''} — คงเหลือ: {p.stockQty ?? 0} {p.unitName || 'แกลลอน'}
+                        {p.productName} {p.productModelCode ? `(${p.productModelCode})` : ''} — คงเหลือ:{' '}
+                        {p.stockQty ?? 0} {p.unitName || 'แกลลอน'}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">2. จำนวนหัวเชื้อที่เบิก (แกลลอน) *</label>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                    2. จำนวนหัวเชื้อที่เบิก (แกลลอน) *
+                  </label>
                   <input
                     type="number"
                     min="1"
@@ -441,7 +481,9 @@ export default function ChemicalSystemPage() {
                     checked={isDilutionProcess}
                     onChange={(e) => setIsDilutionProcess(e.target.checked)}
                   />
-                  <span className="text-sm font-bold text-white">ทำการผสมน้ำยา ณ คลังกลาง (Dilution Process)</span>
+                  <span className="text-sm font-bold text-white">
+                    ทำการผสมน้ำยา ณ คลังกลาง (Dilution Process)
+                  </span>
                 </label>
 
                 {!isDilutionProcess && (
@@ -452,8 +494,56 @@ export default function ChemicalSystemPage() {
                 )}
               </div>
 
+              {/* 3. ช่องพนักงานผู้เบิก */}
               <div>
-                <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">3. หมายเหตุบันทึกคลัง</label>
+                <label className="block text-xs md:text-sm text-emerald-400 mb-2 font-semibold flex items-center gap-1.5">
+                  <UserCheck size={16} /> 3. พนักงานผู้เบิก *
+                </label>
+                {employees.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <select
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
+                      value={selectedEmployeeId}
+                      onChange={(e) => {
+                        setSelectedEmployeeId(e.target.value ? Number(e.target.value) : '');
+                        if (e.target.value) setBatchStaffName('');
+                      }}
+                    >
+                      <option value="">-- เลือกจากรายชื่อพนักงาน --</option>
+                      {employees.map((emp: any) => (
+                        <option key={emp.employeeId} value={emp.employeeId}>
+                          #{emp.employeeId} - {emp.firstName || emp.name} {emp.lastName || ''}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="หรือพิมพ์ชื่อพนักงานผู้เบิกเอง..."
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500"
+                      value={batchStaffName}
+                      onChange={(e) => {
+                        setBatchStaffName(e.target.value);
+                        if (e.target.value) setSelectedEmployeeId('');
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder="ระบุชื่อ หรือ รหัสพนักงานผู้เบิก เช่น ช่างเอก, สมชาย..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500"
+                    value={batchStaffName}
+                    onChange={(e) => setBatchStaffName(e.target.value)}
+                    required
+                  />
+                )}
+              </div>
+
+              {/* 4. หมายเหตุบันทึกคลัง */}
+              <div>
+                <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                  4. หมายเหตุบันทึกคลัง
+                </label>
                 <input
                   type="text"
                   placeholder="เช่น เบิกผสมน้ำยาถังใหญ่ประจำสัปดาห์..."
@@ -468,7 +558,13 @@ export default function ChemicalSystemPage() {
                 disabled={isSubmitting}
                 className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-sm transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
               >
-                {isSubmitting ? 'กำลังบันทึก...' : <><CheckCircle2 size={18} /> บันทึกตัดสต็อกหัวเชื้อ & เพิ่มสต็อกน้ำยาผสม</>}
+                {isSubmitting ? (
+                  'กำลังบันทึก...'
+                ) : (
+                  <>
+                    <CheckCircle2 size={18} /> บันทึกตัดสต็อกหัวเชื้อ & เพิ่มสต็อกน้ำยาผสม
+                  </>
+                )}
               </button>
             </form>
           </div>
@@ -505,7 +601,9 @@ export default function ChemicalSystemPage() {
                     />
                     <div>
                       <div className="text-sm">🧪 น้ำยาผสมแล้ว (Mix)</div>
-                      <div className="text-[11px] font-normal text-slate-400">ตัดสต็อกรายการน้ำยาที่ผสมพร้อมใช้งาน ({mixedProducts.length} รายการ)</div>
+                      <div className="text-[11px] font-normal text-slate-400">
+                        ตัดสต็อกรายการน้ำยาที่ผสมพร้อมใช้งาน ({mixedProducts.length} รายการ)
+                      </div>
                     </div>
                   </label>
 
@@ -529,7 +627,9 @@ export default function ChemicalSystemPage() {
                     />
                     <div>
                       <div className="text-sm">💧 หัวเชื้อน้ำยา (Pure)</div>
-                      <div className="text-[11px] font-normal text-slate-400">ตัดสต็อกแกลลอนหัวเชื้อโดยตรง ({concentrateProducts.length} รายการ)</div>
+                      <div className="text-[11px] font-normal text-slate-400">
+                        ตัดสต็อกแกลลอนหัวเชื้อโดยตรง ({concentrateProducts.length} รายการ)
+                      </div>
                     </div>
                   </label>
                 </div>
@@ -551,14 +651,18 @@ export default function ChemicalSystemPage() {
                     </option>
                     {currentDeliveryOptions.map((p) => (
                       <option key={p.productId} value={p.productId}>
-                        #{p.productId} {p.productName} {p.productModelCode ? `[${p.productModelCode}]` : ''} — คงเหลือ: {p.stockQty ?? 0} {p.unitName || 'ถัง'}
+                        #{p.productId} {p.productName}{' '}
+                        {p.productModelCode ? `[${p.productModelCode}]` : ''} — คงเหลือ:{' '}
+                        {p.stockQty ?? 0} {p.unitName || 'ถัง'}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">3. จำนวนที่จัดส่ง *</label>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                    3. จำนวนที่จัดส่ง *
+                  </label>
                   <input
                     type="number"
                     min="1"
@@ -572,23 +676,30 @@ export default function ChemicalSystemPage() {
               {/* 3. เลือกร้านค้าลูกค้า & เลขที่ใบส่งของ */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">4. เลือกร้านค้า / ลูกค้าผู้รับน้ำยา *</label>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                    4. เลือกร้านค้า / ลูกค้าผู้รับน้ำยา *
+                  </label>
                   <select
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
                     value={selectedCustomerId}
                     onChange={(e) => setSelectedCustomerId(Number(e.target.value))}
                   >
-                    <option value="" disabled>-- เลือกลูกค้า --</option>
+                    <option value="" disabled>
+                      -- เลือกลูกค้า --
+                    </option>
                     {customers.map((c) => (
                       <option key={c.customer_id} value={c.customer_id}>
-                        #{c.customer_id} - {c.customer_name} {c.customer_taxname ? `(${c.customer_taxname})` : ''}
+                        #{c.customer_id} {c.customer_name}{' '}
+                        {c.customer_taxname ? `(${c.customer_taxname})` : ''}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">5. เลขที่ใบส่งของ (Delivery No.)</label>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                    5. เลขที่ใบส่งของ (Delivery No.)
+                  </label>
                   <input
                     type="text"
                     placeholder="เช่น DO-2026-001 (ปล่อยว่างเพื่อสร้างอัตโนมัติ)"
@@ -601,7 +712,9 @@ export default function ChemicalSystemPage() {
 
               {/* 4. หมายเหตุการจัดส่ง */}
               <div>
-                <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">6. หมายเหตุการจัดส่ง</label>
+                <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                  6. หมายเหตุการจัดส่ง
+                </label>
                 <input
                   type="text"
                   placeholder="เช่น จัดส่งรอบประจำสัปดาห์..."
@@ -666,7 +779,13 @@ export default function ChemicalSystemPage() {
                 disabled={isSubmitting}
                 className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-sm transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
               >
-                {isSubmitting ? 'กำลังอัปโหลดและบันทึกข้อมูล...' : <><CheckCircle2 size={18} /> ยืนยันเปิดบิลจัดส่ง & ตัดสต็อก FIFO</>}
+                {isSubmitting ? (
+                  'กำลังอัปโหลดและบันทึกข้อมูล...'
+                ) : (
+                  <>
+                    <CheckCircle2 size={18} /> ยืนยันเปิดบิลจัดส่ง & ตัดสต็อก FIFO
+                  </>
+                )}
               </button>
             </form>
           </div>
@@ -678,7 +797,9 @@ export default function ChemicalSystemPage() {
             <h3 className="font-bold text-base text-white flex items-center gap-2">
               <Database className="text-indigo-400" size={18} /> สต็อกคลังสินค้าล่าสุด (Live Stock Monitor)
             </h3>
-            <span className="px-2.5 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-lg text-xs font-bold">Realtime</span>
+            <span className="px-2.5 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-lg text-xs font-bold">
+              Realtime
+            </span>
           </div>
 
           {loading ? (
@@ -691,11 +812,23 @@ export default function ChemicalSystemPage() {
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {mixedProducts.map((p) => (
-                    <div key={p.productId} className="bg-slate-950 border border-emerald-500/20 rounded-xl p-4 space-y-1">
-                      <div className="text-slate-300 text-xs font-medium truncate" title={p.productName}>{p.productName}</div>
-                      <div className="text-[10px] text-slate-500 font-mono truncate">{p.productModelCode || '-'}</div>
-                      <div className={`text-xl font-extrabold font-mono pt-1 ${(p.stockQty ?? 0) > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {p.stockQty ?? 0} <span className="text-xs font-normal text-slate-400">{p.unitName || 'ถัง'}</span>
+                    <div
+                      key={p.productId}
+                      className="bg-slate-950 border border-emerald-500/20 rounded-xl p-4 space-y-1"
+                    >
+                      <div className="text-slate-300 text-xs font-medium truncate" title={p.productName}>
+                        {p.productName}
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-mono truncate">
+                        {p.productModelCode || '-'}
+                      </div>
+                      <div
+                        className={`text-xl font-extrabold font-mono pt-1 ${
+                          (p.stockQty ?? 0) > 0 ? 'text-emerald-400' : 'text-rose-400'
+                        }`}
+                      >
+                        {p.stockQty ?? 0}{' '}
+                        <span className="text-xs font-normal text-slate-400">{p.unitName || 'ถัง'}</span>
                       </div>
                     </div>
                   ))}
@@ -708,11 +841,25 @@ export default function ChemicalSystemPage() {
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {concentrateProducts.map((p) => (
-                    <div key={p.productId} className="bg-slate-950 border border-amber-500/20 rounded-xl p-4 space-y-1">
-                      <div className="text-slate-300 text-xs font-medium truncate" title={p.productName}>{p.productName}</div>
-                      <div className="text-[10px] text-slate-500 font-mono truncate">{p.productModelCode || '-'}</div>
-                      <div className={`text-xl font-extrabold font-mono pt-1 ${(p.stockQty ?? 0) > 0 ? 'text-amber-400' : 'text-rose-400'}`}>
-                        {p.stockQty ?? 0} <span className="text-xs font-normal text-slate-400">{p.unitName || 'แกลลอน'}</span>
+                    <div
+                      key={p.productId}
+                      className="bg-slate-950 border border-amber-500/20 rounded-xl p-4 space-y-1"
+                    >
+                      <div className="text-slate-300 text-xs font-medium truncate" title={p.productName}>
+                        {p.productName}
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-mono truncate">
+                        {p.productModelCode || '-'}
+                      </div>
+                      <div
+                        className={`text-xl font-extrabold font-mono pt-1 ${
+                          (p.stockQty ?? 0) > 0 ? 'text-amber-400' : 'text-rose-400'
+                        }`}
+                      >
+                        {p.stockQty ?? 0}{' '}
+                        <span className="text-xs font-normal text-slate-400">
+                          {p.unitName || 'แกลลอน'}
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -732,7 +879,7 @@ export default function ChemicalSystemPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
               <input
                 type="text"
-                placeholder="ค้นหาเลขบิล, ชื่อน้ำยา, ลูกค้า..."
+                placeholder="ค้นหาเลขบิล, ชื่อน้ำยา, ลูกค้า, ผู้เบิก..."
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-white outline-none focus:border-indigo-500"
                 value={historySearch}
                 onChange={(e) => setHistorySearch(e.target.value)}
@@ -748,18 +895,22 @@ export default function ChemicalSystemPage() {
                   <th className="p-3.5">เลขที่อ้างอิง</th>
                   <th className="p-3.5">ประเภท / รายการน้ำยา</th>
                   <th className="p-3.5 text-center">จำนวน</th>
-                  <th className="p-3.5">รายละเอียด / ลูกค้า</th>
+                  <th className="p-3.5">รายละเอียด / ผู้เบิก / ลูกค้า</th>
                   <th className="p-3.5 text-center">หลักฐานรูป</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 text-slate-300">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-slate-500">กำลังโหลดประวัติ...</td>
+                    <td colSpan={6} className="p-8 text-center text-slate-500">
+                      กำลังโหลดประวัติ...
+                    </td>
                   </tr>
                 ) : chemicalHistory.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-slate-500">ยังไม่มีประวัติการทำรายการน้ำยา</td>
+                    <td colSpan={6} className="p-8 text-center text-slate-500">
+                      ยังไม่มีประวัติการทำรายการน้ำยา
+                    </td>
                   </tr>
                 ) : (
                   chemicalHistory.slice(0, 15).map((tx) => {
@@ -776,19 +927,28 @@ export default function ChemicalSystemPage() {
                         </td>
                         <td className="p-3.5 font-medium text-white">
                           <div className="flex items-center gap-2">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                              isMixed
-                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                            }`}>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                isMixed
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                  : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                              }`}
+                            >
                               {isMixed ? 'น้ำยาผสม' : 'หัวเชื้อ'}
                             </span>
                             <span>{tx.product?.productName || '-'}</span>
                           </div>
                         </td>
                         <td className="p-3.5 text-center font-bold">
-                          <span className={`px-2 py-0.5 rounded ${tx.transactionType === 'IN' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                            {tx.transactionType === 'IN' ? '+' : '-'}{tx.quantity}
+                          <span
+                            className={`px-2 py-0.5 rounded ${
+                              tx.transactionType === 'IN'
+                                ? 'bg-emerald-500/10 text-emerald-400'
+                                : 'bg-rose-500/10 text-rose-400'
+                            }`}
+                          >
+                            {tx.transactionType === 'IN' ? '+' : '-'}
+                            {tx.quantity}
                           </span>
                         </td>
                         <td className="p-3.5 text-slate-400">{cleanRemark}</td>
