@@ -1,869 +1,1216 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import Link from 'next/link';
 import {
+  ArrowLeft,
+  RefreshCw,
   FlaskConical,
   Truck,
-  ArrowLeft,
-  Camera,
   CheckCircle2,
-  AlertCircle,
+  AlertTriangle,
+  Database,
+  Layers,
+  History,
   Search,
-  UserCheck,
-  Package,
-  RefreshCw,
+  Camera,
   Image as ImageIcon,
-  X
+  X,
+  ExternalLink,
+  UserCheck,
+  ChevronDown,
+  Building2,
+  User,
+  Phone,
+  ArrowRight,
 } from 'lucide-react';
+import Link from 'next/link';
 
-// เชื่อมต่อ Supabase
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://udkicadlthssizksdbaz.supabase.co';
+const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVka2ljYWRsdGhzc2l6a3NkYmF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0OTI2NzQsImV4cCI6MjA5MTA2ODY3NH0.T0zzi09kqHG9dGKPTtIJUvRmA02GUbu-UBXKuOBPZ4k';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+interface Product {
+  productId: number;
+  productName: string;
+  productModelCode: string | null;
+  unitCost: number | null;
+  salePrice: number | null;
+  stockQty: number | null;
+  categoryId: number;
+  unitName: string | null;
+}
+
+interface Customer {
+  customer_id: number;
+  customer_name: string;
+  customer_taxname: string | null;
+  customer_contact_name: string | null;
+  customer_number: string | null;
+  customer_status?: string | null;
+}
+
+interface Employee {
+  employeeId?: number;
+  id?: number;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+}
+
+interface Transaction {
+  transactionId: number;
+  productId: number;
+  transactionType: string;
+  quantity: number;
+  transactionDate: string;
+  referenceNo: string | null;
+  remark: string | null;
+  product?: Product;
+}
+
 export default function ChemicalSystemPage() {
-  const [activeSubTab, setActiveSubTab] = useState<'mix' | 'delivery'>('mix');
-  const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [activeTab, setActiveTab] = useState<'mixing' | 'delivery'>('mixing');
+  const [products, setProducts] = useState<Product[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ข้อมูลสต็อกและรายชื่อ
-  const [products, setProducts] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
-  const [customers, setCustomers] = useState<any[]>([]);
-  const [lots, setLots] = useState<any[]>([]);
+  // Form State: Sub-tab A (Internal Batching / Mixing)
+  const [selectedSourceId, setSelectedSourceId] = useState<number | ''>('');
+  const [batchQty, setBatchQty] = useState<number>(1);
+  const [isDilutionProcess, setIsDilutionProcess] = useState<boolean>(true);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | ''>('');
+  const [batchRemark, setBatchRemark] = useState<string>('');
 
-  // State สำหรับ Sub-tab A: ผสมน้ำยา (1:2)
-  const [concentrateId, setConcentrateId] = useState<string>('');
-  const [mixedId, setMixedId] = useState<string>('');
-  const [mixAmount, setMixAmount] = useState<number>(1);
-  const [mixEmployeeId, setMixEmployeeId] = useState<string>('');
-  const [mixNote, setMixNote] = useState<string>('');
+  // อัตราส่วนการผสม: 1 ถังหัวเชื้อ = 2 ถังผสม
+  const MIXING_RATIO = 2;
+  const expectedMixedYield = batchQty > 0 ? batchQty * MIXING_RATIO : 0;
 
-  // State สำหรับ Sub-tab B: จัดส่งลูกค้า
-  const [deliveryChemType, setDeliveryChemType] = useState<'mixed' | 'concentrate'>('mixed');
+  // Form State: Sub-tab B (Delivery Order)
+  const [deliveryType, setDeliveryType] = useState<'MIXED' | 'CONCENTRATE'>('MIXED');
+  const [deliveryProductId, setDeliveryProductId] = useState<number | ''>('');
   const [deliveryQty, setDeliveryQty] = useState<number>(1);
-  const [deliveryEmployeeId, setDeliveryEmployeeId] = useState<string>('');
-  const [customerSearch, setCustomerSearch] = useState<string>('');
-  const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState<boolean>(false);
-  const [deliveryNote, setDeliveryNote] = useState<string>('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<number | ''>('');
+  const [deliveryRef, setDeliveryRef] = useState<string>('');
+  const [deliveryRemark, setDeliveryRemark] = useState<string>('');
+
+  // Searchable Customer Dropdown State
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Photo State สำหรับ Sub-tab B
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [viewingPhotoUrl, setViewingPhotoUrl] = useState<string | null>(null);
 
-  // โหลดข้อมูลเริ่มต้น
-  const fetchInitialData = async () => {
-    setLoading(true);
-    try {
-      const [prodRes, empRes, custRes, lotRes] = await Promise.all([
-        supabase.from('products_catalog').select('*'),
-        supabase
-          .from('employees')
-          .select('employee_id, employee_name, employee_role, employee_status')
-          .eq('employee_status', 'Active'),
-        supabase.from('customers').select('*'),
-        supabase.from('product_lots').select('*').gt('current_qty', 0).order('created_at', { ascending: true })
-      ]);
+  // Filter State for History
+  const [historySearch, setHistorySearch] = useState<string>('');
 
-      if (prodRes.data) {
-        setProducts(prodRes.data);
-        // ค้นหาสินค้าหัวเชื้อและน้ำยาผสมอัตโนมัติ (อิงจากชื่อสินค้า)
-        const conc = prodRes.data.find((p: any) =>
-          p.product_name?.includes('หัวเชื้อ') || p.sku?.includes('CONC')
-        );
-        const mix = prodRes.data.find((p: any) =>
-          (p.product_name?.includes('ผสม') || p.sku?.includes('MIX')) && p.product_id !== conc?.product_id
-        );
-        if (conc) setConcentrateId(String(conc.product_id));
-        if (mix) setMixedId(String(mix.product_id));
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        customerDropdownRef.current &&
+        !customerDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsCustomerDropdownOpen(false);
       }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
-      if (empRes.error) {
-        console.error('Error fetching employees:', empRes.error.message);
-      } else if (empRes.data) {
-        setEmployees(empRes.data);
-      }
+  const isMixedChemical = (p: Product) => {
+    const name = (p.productName || '').toLowerCase();
+    const model = (p.productModelCode || '').toLowerCase();
+    return name.includes('ผสม') || model.includes('(mix)');
+  };
 
-      if (custRes.data) setCustomers(custRes.data);
-      if (lotRes.data) setLots(lotRes.data);
-    } catch (err: any) {
-      console.error('Error loading chemical data:', err);
-    } finally {
-      setLoading(false);
-    }
+  const isAnyChemical = (p: Product) => {
+    const name = (p.productName || '').toLowerCase();
+    return (
+      p.categoryId === 5 ||
+      p.categoryId === 107 ||
+      name.includes('น้ำยา') ||
+      name.includes('หัวเชื้อ') ||
+      name.includes('แกลลอน')
+    );
   };
 
   useEffect(() => {
-    fetchInitialData();
+    fetchData();
   }, []);
 
-  // คำนวณยอดคงเหลือรวมของแต่ละสินค้า
-  const getProductStock = (prodId: string | number) => {
-    if (!prodId) return 0;
-    return lots
-      .filter((l) => String(l.product_id) === String(prodId))
-      .reduce((sum, l) => sum + Number(l.current_qty || 0), 0);
-  };
-
-  // ฟังก์ชันตัดสต็อกแบบ FIFO
-  const deductStockFIFO = async (
-    productId: string | number,
-    qtyToDeduct: number,
-    txType: string,
-    employeeId: string,
-    note: string,
-    customerId?: number | string | null,
-    imageUrl?: string | null
-  ) => {
-    const productLots = lots.filter(
-      (l) => String(l.product_id) === String(productId) && Number(l.current_qty) > 0
-    );
-
-    const totalAvailable = productLots.reduce((sum, l) => sum + Number(l.current_qty), 0);
-    if (totalAvailable < qtyToDeduct) {
-      throw new Error(`สต็อกคงเหลือไม่เพียงพอ (มีอยู่ ${totalAvailable} หน่วย แต่ต้องการใช้ ${qtyToDeduct} หน่วย)`);
-    }
-
-    // บันทึก Transaction หลัก
-    const { data: txData, error: txError } = await supabase
-      .from('inventory_transactions')
-      .insert([
-        {
-          product_id: Number(productId),
-          transaction_type: txType,
-          quantity: qtyToDeduct,
-          employee_id: employeeId ? Number(employeeId) : null,
-          customer_id: customerId ? Number(customerId) : null,
-          notes: note,
-          proof_image_url: imageUrl || null,
-          transaction_date: new Date().toISOString()
-        }
-      ])
-      .select()
-      .single();
-
-    if (txError) throw txError;
-
-    // ตัดสต็อกทีละ Lot แบบ FIFO
-    let remaining = qtyToDeduct;
-    for (const lot of productLots) {
-      if (remaining <= 0) break;
-      const availableInLot = Number(lot.current_qty);
-      const take = Math.min(availableInLot, remaining);
-      const newQty = availableInLot - take;
-
-      const { error: updateLotError } = await supabase
-        .from('product_lots')
-        .update({ current_qty: newQty })
-        .eq('lot_id', lot.lot_id);
-
-      if (updateLotError) throw updateLotError;
-
-      // บันทึกรายละเอียด Lot ที่ถูกตัด
-      await supabase.from('transaction_lot_details').insert([
-        {
-          transaction_id: txData.transaction_id,
-          lot_id: lot.lot_id,
-          quantity_affected: take
-        }
-      ]);
-
-      remaining -= take;
-    }
-
-    return txData;
-  };
-
-  // จัดการ Sub-tab A: ผสมน้ำยา (ตัดหัวเชื้อ 1 : เพิ่มน้ำยาผสม 2)
-  const handleMixSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setMessage(null);
-
-    if (!concentrateId || !mixedId) {
-      setMessage({ type: 'error', text: 'กรุณาเลือกรายการสินค้าหัวเชื้อและน้ำยาผสมให้ครบถ้วน' });
-      return;
-    }
-    if (concentrateId === mixedId) {
-      setMessage({ type: 'error', text: 'สินค้าหัวเชื้อและน้ำยาผสมต้องไม่เป็นรายการเดียวกัน' });
-      return;
-    }
-    if (!mixEmployeeId) {
-      setMessage({ type: 'error', text: 'กรุณาเลือกพนักงานผู้เบิก' });
-      return;
-    }
-    if (mixAmount <= 0) {
-      setMessage({ type: 'error', text: 'จำนวนหัวเชื้อต้องมากกว่า 0' });
-      return;
-    }
-
-    const outputMixedQty = mixAmount * 2; // อัตราส่วน 1:2
-    setSubmitting(true);
-
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      // 1. ตัดสต็อกหัวเชื้อ (OUT)
-      await deductStockFIFO(
-        concentrateId,
-        mixAmount,
-        'OUT',
-        mixEmployeeId,
-        `เบิกหัวเชื้อผสมน้ำยา (สูตร 1:2 ได้น้ำยาผสม ${outputMixedQty} หน่วย) ${mixNote ? '- ' + mixNote : ''}`
-      );
+      try {
+        const custRes = await fetch('/api/customers', { cache: 'no-store' });
+        if (custRes.ok) {
+          const custData = await custRes.json();
+          const list = Array.isArray(custData)
+            ? custData
+            : custData.customers || custData.data || [];
 
-      // 2. เพิ่มสต็อกน้ำยาผสม (IN) สร้าง Lot ใหม่
-      const newLotNo = `MIX-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`;
-
-      const { data: newLot, error: lotError } = await supabase
-        .from('product_lots')
-        .insert([
-          {
-            product_id: Number(mixedId),
-            lot_number: newLotNo,
-            initial_qty: outputMixedQty,
-            current_qty: outputMixedQty,
-            received_date: new Date().toISOString().slice(0, 10)
+          if (list.length > 0) {
+            setCustomers(list);
+          } else {
+            const { data: sbCusts } = await supabase
+              .from('customers')
+              .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
+              .order('customer_id', { ascending: true });
+            if (sbCusts) setCustomers(sbCusts);
           }
-        ])
-        .select()
-        .single();
-
-      if (lotError) throw lotError;
-
-      const { data: inTx, error: inTxError } = await supabase
-        .from('inventory_transactions')
-        .insert([
-          {
-            product_id: Number(mixedId),
-            transaction_type: 'IN',
-            quantity: outputMixedQty,
-            employee_id: Number(mixEmployeeId),
-            notes: `รับเข้าน้ำยาจากการผสม (ใช้หัวเชื้อ ${mixAmount} หน่วย) Lot: ${newLotNo} ${mixNote ? '- ' + mixNote : ''}`,
-            transaction_date: new Date().toISOString()
-          }
-        ])
-        .select()
-        .single();
-
-      if (inTxError) throw inTxError;
-
-      await supabase.from('transaction_lot_details').insert([
-        {
-          transaction_id: inTx.transaction_id,
-          lot_id: newLot.lot_id,
-          quantity_affected: outputMixedQty
-        }
-      ]);
-
-      setMessage({
-        type: 'success',
-        text: `บันทึกการผสมน้ำยาสำเร็จ! ตัดหัวเชื้อ ${mixAmount} หน่วย และเพิ่มน้ำยาผสม ${outputMixedQty} หน่วย (Lot: ${newLotNo})`
-      });
-      setMixAmount(1);
-      setMixNote('');
-      await fetchInitialData();
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล' });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // จัดการอัปโหลดรูปภาพตัวอย่าง
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setPhotoFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // จัดการ Sub-tab B: จัดส่งลูกค้า
-  const handleDeliverySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setMessage(null);
-
-    const targetProductId = deliveryChemType === 'mixed' ? mixedId : concentrateId;
-
-    if (!targetProductId) {
-      setMessage({ type: 'error', text: 'ไม่พบรหัสสินค้าน้ำยาในระบบ กรุณาตรวจสอบแคตตาล็อกสินค้า' });
-      return;
-    }
-    if (!selectedCustomer) {
-      setMessage({ type: 'error', text: 'กรุณาค้นหาและเลือกลูกค้าที่ต้องการจัดส่ง' });
-      return;
-    }
-    if (!deliveryEmployeeId) {
-      setMessage({ type: 'error', text: 'กรุณาเลือกพนักงานผู้จัดส่ง' });
-      return;
-    }
-    if (deliveryQty <= 0) {
-      setMessage({ type: 'error', text: 'จำนวนที่จัดส่งต้องมากกว่า 0' });
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      let uploadedImageUrl: string | null = null;
-
-      // อัปโหลดรูปภาพขึ้น Supabase Storage (ถ้ามี)
-      if (photoFile) {
-        const fileExt = photoFile.name.split('.').pop();
-        const fileName = `delivery_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
-        const { error: uploadError } = await supabase.storage
-          .from('delivery-photos')
-          .upload(fileName, photoFile);
-
-        if (uploadError) {
-          console.warn('Upload photo failed, continuing without photo URL:', uploadError.message);
         } else {
-          const { data: publicUrlData } = supabase.storage
-            .from('delivery-photos')
-            .getPublicUrl(fileName);
-          uploadedImageUrl = publicUrlData.publicUrl;
+          const { data: sbCusts } = await supabase
+            .from('customers')
+            .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
+            .order('customer_id', { ascending: true });
+          if (sbCusts) setCustomers(sbCusts);
+        }
+      } catch (e) {
+        console.error('Customer fetch failed:', e);
+        const { data: sbCusts } = await supabase
+          .from('customers')
+          .select('customer_id, customer_name, customer_taxname, customer_contact_name, customer_number, customer_status')
+          .order('customer_id', { ascending: true });
+        if (sbCusts) setCustomers(sbCusts);
+      }
+
+      const [prodRes, txRes] = await Promise.all([
+        fetch('/api/products', { cache: 'no-store' }).catch(() => null),
+        fetch('/api/transactions', { cache: 'no-store' }).catch(() => null),
+      ]);
+
+      if (prodRes && prodRes.ok) {
+        const prodData = await prodRes.json();
+        if (prodData.success) {
+          const allProds: Product[] = prodData.products || [];
+          setProducts(allProds);
+
+          const firstConcentrate = allProds.find((p) => isAnyChemical(p) && !isMixedChemical(p));
+          if (firstConcentrate && !selectedSourceId) {
+            setSelectedSourceId(firstConcentrate.productId);
+          }
         }
       }
 
-      const custName = selectedCustomer.shop_name || selectedCustomer.company_name || selectedCustomer.customer_name || `ID:${selectedCustomer.customer_id}`;
-      const chemLabel = deliveryChemType === 'mixed' ? 'น้ำยาผสมพร้อมใช้' : 'น้ำยาหัวเชื้อ';
+      if (txRes && txRes.ok) {
+        const txData = await txRes.json();
+        if (txData.success) {
+          setTransactions(txData.transactions || []);
+        }
+      }
 
-      await deductStockFIFO(
-        targetProductId,
-        deliveryQty,
-        'OUT',
-        deliveryEmployeeId,
-        `จัดส่ง${chemLabel} ให้ลูกค้า: ${custName} ${deliveryNote ? '- ' + deliveryNote : ''}`,
-        selectedCustomer.customer_id,
-        uploadedImageUrl
-      );
+      const { data: sbEmps } = await supabase.from('employees').select('*');
+      if (sbEmps) setEmployees(sbEmps);
 
-      setMessage({
-        type: 'success',
-        text: `บันทึกการจัดส่ง${chemLabel} จำนวน ${deliveryQty} หน่วย ให้กับ "${custName}" เรียบร้อยแล้ว!`
-      });
-
-      // รีเซ็ตฟอร์มจัดส่ง
-      setDeliveryQty(1);
-      setSelectedCustomer(null);
-      setCustomerSearch('');
-      setDeliveryNote('');
-      setPhotoFile(null);
-      setPhotoPreview(null);
-      await fetchInitialData();
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'เกิดข้อผิดพลาดในการบันทึกการจัดส่ง' });
-    } finally {
-      setSubmitting(false);
+    } catch (error) {
+      console.error('Error fetching chemical system data:', error);
     }
+    setLoading(false);
   };
 
-  // กรองรายชื่อลูกค้าตามคำค้นหา
   const filteredCustomers = customers.filter((c) => {
-    const q = customerSearch.toLowerCase().trim();
-    if (!q) return true;
+    if (!customerSearchTerm.trim()) return true;
+    const q = customerSearchTerm.toLowerCase().trim();
+    const idStr = String(c.customer_id);
+    const name = (c.customer_name || '').toLowerCase();
+    const taxname = (c.customer_taxname || '').toLowerCase();
+    const contact = (c.customer_contact_name || '').toLowerCase();
+    const phone = (c.customer_number || '').toLowerCase();
     return (
-      String(c.customer_id || '').toLowerCase().includes(q) ||
-      String(c.shop_name || '').toLowerCase().includes(q) ||
-      String(c.company_name || '').toLowerCase().includes(q) ||
-      String(c.customer_name || '').toLowerCase().includes(q) ||
-      String(c.contact_name || '').toLowerCase().includes(q) ||
-      String(c.phone || '').toLowerCase().includes(q)
+      idStr.includes(q) ||
+      `#${idStr}`.includes(q) ||
+      name.includes(q) ||
+      taxname.includes(q) ||
+      contact.includes(q) ||
+      phone.includes(q)
     );
   });
 
-  return (
-    <div className="min-h-screen bg-[#060913] text-slate-100 p-4 md:p-8 font-sans">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#0d1322] border border-slate-800/80 p-5 rounded-2xl shadow-xl">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400">
-              <FlaskConical className="w-7 h-7" />
-            </div>
-            <div>
-              <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">
-                ระบบจัดการน้ำยา & จัดส่งลูกค้า
-              </h1>
-              <p className="text-sm text-slate-400">
-                เบิกผสมหัวเชื้อ (อัตราส่วน 1:2) และบันทึกการจัดส่งพร้อมหลักฐาน
-              </p>
-            </div>
-          </div>
+  const selectedCustomerObj = customers.find((c) => c.customer_id === Number(selectedCustomerId));
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={fetchInitialData}
-              disabled={loading}
-              className="p-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 transition"
-              title="รีเฟรชข้อมูลสต็อก"
-            >
-              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
-            </button>
+  const allChemicals = products.filter(isAnyChemical);
+  const concentrateProducts = allChemicals.filter((p) => !isMixedChemical(p));
+  const mixedProducts = allChemicals.filter((p) => isMixedChemical(p));
+  const currentDeliveryOptions = deliveryType === 'MIXED' ? mixedProducts : concentrateProducts;
+
+  const compressImage = (file: File): Promise<Blob> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new window.Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => {
+              resolve(blob || file);
+            },
+            'image/jpeg',
+            0.8
+          );
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoFile(file);
+    const objectUrl = URL.createObjectURL(file);
+    setPhotoPreview(objectUrl);
+  };
+
+  const clearPhoto = () => {
+    setPhotoFile(null);
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoPreview(null);
+  };
+
+  const handleMixingSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSourceId) return alert('กรุณาเลือกหัวเชื้อน้ำยาตั้งต้น');
+    if (batchQty <= 0) return alert('กรุณาระบุจำนวนมากกว่า 0');
+    if (!selectedEmployeeId) return alert('กรุณาเลือกพนักงานผู้เบิกจากรายการ');
+
+    const selectedEmp = employees.find(
+      (emp) => (emp.employeeId ?? emp.id) === Number(selectedEmployeeId)
+    );
+    const empName = selectedEmp
+      ? `${selectedEmp.firstName || selectedEmp.name || ''} ${selectedEmp.lastName || ''}`.trim()
+      : `ID: ${selectedEmployeeId}`;
+
+    const defaultDesc = isDilutionProcess
+      ? `เบิกผสมน้ำยาคลังกลาง (หัวเชื้อ ${batchQty} ถัง ➔ น้ำยาผสม ${expectedMixedYield} ถัง)`
+      : 'เบิกน้ำยาสำเร็จรูปโดยไม่ผ่านกระบวนการผสม';
+    const combinedRemark = `[ผู้เบิก: ${empName}] ${batchRemark.trim() || defaultDesc}`;
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transactionType: isDilutionProcess ? 'MIXING' : 'OUT',
+          referenceNo: `BATCH-${Math.floor(100000 + Math.random() * 900000)}`,
+          employeeId: Number(selectedEmployeeId),
+          remark: combinedRemark,
+          mixingRatio: isDilutionProcess ? MIXING_RATIO : 1,
+          items: [
+            {
+              productId: Number(selectedSourceId),
+              quantity: Number(batchQty),
+              yieldQty: isDilutionProcess ? Number(expectedMixedYield) : 0,
+            },
+          ],
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(
+          isDilutionProcess
+            ? `✅ บันทึกสำเร็จ!\n- ตัดสต็อกหัวเชื้อ: ${batchQty} ถัง\n- เพิ่มสต็อกน้ำยาผสม: ${expectedMixedYield} ถัง (สูตร 1:2)`
+            : '✅ บันทึกการเบิกหัวเชื้อเรียบร้อยแล้ว'
+        );
+        setBatchRemark('');
+        setBatchQty(1);
+        setSelectedEmployeeId('');
+        fetchData();
+      } else {
+        alert(`❌ เกิดข้อผิดพลาด: ${data.error}`);
+      }
+    } catch (err) {
+      alert('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
+    }
+    setIsSubmitting(false);
+  };
+
+  const handleDeliverySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deliveryProductId) return alert('กรุณาเลือกผลิตภัณฑ์น้ำยาที่ต้องการจัดส่ง');
+    if (deliveryQty <= 0) return alert('กรุณาระบุจำนวนมากกว่า 0');
+    if (!selectedCustomerId) return alert('กรุณาเลือกร้านค้าลูกค้าผู้รับน้ำยา');
+
+    setIsSubmitting(true);
+    let uploadedPhotoUrl: string | null = null;
+
+    try {
+      if (photoFile) {
+        const compressedBlob = await compressImage(photoFile);
+        const fileName = `delivery-${Date.now()}-${Math.floor(Math.random() * 1000)}.jpg`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('delivery-photos')
+          .upload(fileName, compressedBlob, {
+            contentType: 'image/jpeg',
+            upsert: false,
+          });
+
+        if (uploadError) {
+          throw new Error(
+            `อัปโหลดรูปภาพไม่สำเร็จ: ${uploadError.message} (กรุณาเช็กว่าสร้าง Bucket ชื่อ delivery-photos ใน Supabase แล้ว)`
+          );
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from('delivery-photos')
+          .getPublicUrl(fileName);
+
+        uploadedPhotoUrl = publicUrlData.publicUrl;
+      }
+
+      const typePrefix = deliveryType === 'MIXED' ? '[น้ำยาผสมแล้ว]' : '[หัวเชื้อ]';
+      const combinedRemark = `${typePrefix} ${deliveryRemark}`.trim();
+
+      const res = await fetch('/api/chemical/delivery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId: Number(deliveryProductId),
+          quantity: Number(deliveryQty),
+          customerId: Number(selectedCustomerId),
+          referenceNo: deliveryRef,
+          remark: combinedRemark,
+          photoUrl: uploadedPhotoUrl,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`✅ ${data.message || 'เปิดบิลจัดส่งน้ำยาและตัดสต็อกสำเร็จเรียบร้อยแล้ว'}`);
+        setDeliveryRef('');
+        setDeliveryRemark('');
+        setDeliveryQty(1);
+        setSelectedCustomerId('');
+        setCustomerSearchTerm('');
+        clearPhoto();
+        fetchData();
+      } else {
+        alert(`❌ เกิดข้อผิดพลาด: ${data.error}`);
+      }
+    } catch (err: any) {
+      alert(`❌ ${err.message || 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'}`);
+    }
+    setIsSubmitting(false);
+  };
+
+  const parseRemarkAndPhoto = (rawRemark: string | null) => {
+    if (!rawRemark) return { text: '-', photoUrl: null };
+    const parts = rawRemark.split('|PHOTO:');
+    return {
+      text: parts[0].trim() || '-',
+      photoUrl: parts[1] ? parts[1].trim() : null,
+    };
+  };
+
+  const chemicalHistory = transactions.filter((tx) => {
+    const pName = (tx.product?.productName || '').toLowerCase();
+    const isChem =
+      tx.product?.categoryId === 5 ||
+      tx.product?.categoryId === 107 ||
+      pName.includes('น้ำยา') ||
+      pName.includes('หัวเชื้อ') ||
+      pName.includes('แกลลอน') ||
+      (tx.referenceNo || '').startsWith('BATCH-') ||
+      (tx.referenceNo || '').startsWith('DO-');
+
+    if (!isChem) return false;
+
+    if (historySearch.trim()) {
+      const q = historySearch.toLowerCase();
+      return (
+        pName.includes(q) ||
+        (tx.referenceNo || '').toLowerCase().includes(q) ||
+        (tx.remark || '').toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
+  return (
+    <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans relative">
+      <div className="max-w-6xl mx-auto space-y-6">
+        {/* Header Bar */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-900/80 p-5 rounded-2xl border border-slate-800 shadow-xl">
+          <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl border border-slate-700 text-sm font-medium transition"
+              className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition flex items-center gap-1.5 text-sm font-semibold"
             >
-              <ArrowLeft className="w-4 h-4" />
-              กลับหน้าหลัก
+              <ArrowLeft size={18} /> กลับหน้าหลัก
             </Link>
-          </div>
-        </div>
-
-        {/* แสดงยอดคงเหลือน้ำยาปัจจุบัน */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="bg-[#0d1322] border border-amber-500/30 p-4 rounded-2xl flex items-center justify-between">
+            <div className="h-6 w-[1px] bg-slate-800"></div>
             <div>
-              <span className="text-xs font-semibold uppercase tracking-wider text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-md">
-                สต็อกหัวเชื้อเข้มข้น
-              </span>
-              <p className="text-sm text-slate-400 mt-2">
-                {products.find((p) => String(p.product_id) === concentrateId)?.product_name || 'ยังไม่ได้เลือกสินค้าหัวเชื้อ'}
+              <h1 className="text-xl md:text-2xl font-extrabold text-white flex items-center gap-2">
+                <FlaskConical className="text-indigo-400" size={26} /> ระบบจัดการน้ำยาเคมีภัณฑ์ & ผสมสารละลาย
+              </h1>
+              <p className="text-slate-400 text-xs md:text-sm mt-0.5">
+                ควบคุมสต็อกน้ำยา จัดการรอบการผสม (<span className="text-amber-400 font-bold">1 ถังหัวเชื้อ = 2 ถังผสม</span>) และตัดสต็อกตามหน้างานจริง
               </p>
             </div>
-            <div className="text-right">
-              <span className="text-3xl font-extrabold text-amber-400">
-                {getProductStock(concentrateId)}
-              </span>
-              <span className="text-xs text-slate-400 block">แกลลอน / หน่วย</span>
-            </div>
           </div>
-
-          <div className="bg-[#0d1322] border border-cyan-500/30 p-4 rounded-2xl flex items-center justify-between">
-            <div>
-              <span className="text-xs font-semibold uppercase tracking-wider text-cyan-400 bg-cyan-500/10 px-2.5 py-1 rounded-md">
-                สต็อกน้ำยาผสมพร้อมใช้
-              </span>
-              <p className="text-sm text-slate-400 mt-2">
-                {products.find((p) => String(p.product_id) === mixedId)?.product_name || 'ยังไม่ได้เลือกสินค้าน้ำยาผสม'}
-              </p>
-            </div>
-            <div className="text-right">
-              <span className="text-3xl font-extrabold text-cyan-400">
-                {getProductStock(mixedId)}
-              </span>
-              <span className="text-xs text-slate-400 block">แกลลอน / หน่วย</span>
-            </div>
-          </div>
-        </div>
-
-        {/* แจ้งเตือนสถานะ */}
-        {message && (
-          <div
-            className={`p-4 rounded-2xl border flex items-start gap-3 ${
-              message.type === 'success'
-                ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
-                : 'bg-rose-500/10 border-rose-500/40 text-rose-300'
-            }`}
-          >
-            {message.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5 text-emerald-400" />
-            ) : (
-              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-rose-400" />
-            )}
-            <p className="text-sm leading-relaxed">{message.text}</p>
-          </div>
-        )}
-
-        {/* Sub-Tabs Navigation */}
-        <div className="grid grid-cols-2 gap-3 bg-[#0d1322] p-2 rounded-2xl border border-slate-800">
           <button
-            type="button"
-            onClick={() => {
-              setActiveSubTab('mix');
-              setMessage(null);
-            }}
-            className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold text-sm transition ${
-              activeSubTab === 'mix'
-                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-            }`}
+            onClick={fetchData}
+            className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 rounded-xl text-xs font-bold transition flex items-center gap-2 border border-slate-700 shadow-sm"
           >
-            <FlaskConical className="w-4 h-4" />
-            เบิกผสมน้ำยา (สูตร 1:2)
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveSubTab('delivery');
-              setMessage(null);
-            }}
-            className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold text-sm transition ${
-              activeSubTab === 'delivery'
-                ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/40'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-            }`}
-          >
-            <Truck className="w-4 h-4" />
-            จัดส่งน้ำยาลูกค้า
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> รีเฟรชข้อมูล
           </button>
         </div>
 
-        {/* Sub-Tab A: ผสมน้ำยา */}
-        {activeSubTab === 'mix' && (
-          <form
-            onSubmit={handleMixSubmit}
-            className="bg-[#0d1322] border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl"
+        {/* Sub-tab Navigation */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-900 p-2 rounded-2xl border border-slate-800 shadow-lg">
+          <button
+            onClick={() => setActiveTab('mixing')}
+            className={`py-3.5 px-5 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2.5 ${
+              activeTab === 'mixing'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 ring-2 ring-indigo-400/50'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
           >
-            <div className="border-b border-slate-800 pb-4">
+            <FlaskConical size={18} /> Sub-tab A: เบิกคลังกลางเพื่อผสมน้ำยา (Internal Batching)
+          </button>
+          <button
+            onClick={() => setActiveTab('delivery')}
+            className={`py-3.5 px-5 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2.5 ${
+              activeTab === 'delivery'
+                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 ring-2 ring-emerald-400/50'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <Truck size={18} /> Sub-tab B: เปิดบิลจัดส่งน้ำยาให้ลูกค้า (Delivery Order)
+          </button>
+        </div>
+
+        {/* Notice Banner */}
+        <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-2xl p-4 text-xs md:text-sm text-indigo-200 flex items-start gap-3 shadow-lg">
+          <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-xl shrink-0 mt-0.5">
+            <Layers size={18} />
+          </div>
+          <div>
+            <strong className="text-white font-bold block mb-0.5">หลักการทำงานของระบบน้ำยา:</strong>
+            {activeTab === 'mixing'
+              ? 'เบิกหัวเชื้อน้ำยาออกจากคลังโดย ไม่ต้องระบุชื่อร้านค้าลูกค้า ระบบจะตัดสต็อกหัวเชื้อบริสุทธิ์ (OUT) 1 ส่วน และเพิ่มสต็อกน้ำยาผสมสำเร็จเข้าคลัง (IN) 2 ส่วน (อัตราส่วน 1 ถังหัวเชื้อ = 2 ถังผสม) ให้อัตโนมัติพร้อมคำนวณเฉลี่ยต้นทุนต่อถัง'
+              : 'เลือกประเภทน้ำยา (น้ำยาผสมแล้ว หรือ หัวเชื้อ) เลือกรายการ ร้านค้าลูกค้า และสามารถถ่ายรูปหน้างาน/ใบเซ็นรับแนบไปกับบิลได้ทันที'}
+          </div>
+        </div>
+
+        {/* Form Section */}
+        {activeTab === 'mixing' ? (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-4">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <FlaskConical className="w-5 h-5 text-emerald-400" />
-                บันทึกการผสมน้ำยา (ตัดหัวเชื้อ 1 : เพิ่มน้ำยาผสม 2)
+                <FlaskConical className="text-indigo-400" size={20} /> ฟอร์มเบิกหัวเชื้อเพื่อผสมน้ำยากลาง
               </h2>
-              <p className="text-xs text-slate-400 mt-1">
-                ระบบจะตัดสต็อกหัวเชื้อแบบ FIFO และสร้าง Lot ใหม่ให้น้ำยาผสมอัตโนมัติในอัตราส่วน 2 เท่า
-              </p>
+              <span className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-bold">
+                อัตราส่วนมาตรฐาน: 1 ถังหัวเชื้อ = 2 ถังผสม
+              </span>
             </div>
 
-            {/* 1. เลือกสินค้าหัวเชื้อ & น้ำยาผสม */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-amber-400 mb-2">
-                  1.1 สินค้าหัวเชื้อ (ตัดออก) *
-                </label>
-                <select
-                  value={concentrateId}
-                  onChange={(e) => setConcentrateId(e.target.value)}
-                  className="w-full bg-[#090d16] border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-400"
-                  required
-                >
-                  <option value="">-- เลือกสินค้าหัวเชื้อ --</option>
-                  {products.map((p) => (
-                    <option key={p.product_id} value={p.product_id}>
-                      [{p.sku || p.product_id}] {p.product_name} (คงเหลือ: {getProductStock(p.product_id)})
+            <form onSubmit={handleMixingSubmit} className="space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                    1. เลือกน้ำยาหัวเชื้อตั้งต้น *
+                  </label>
+                  <select
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-indigo-500 transition cursor-pointer"
+                    value={selectedSourceId}
+                    onChange={(e) => setSelectedSourceId(Number(e.target.value))}
+                  >
+                    <option value="" disabled>
+                      -- เลือกหัวเชื้อน้ำยา --
                     </option>
-                  ))}
-                </select>
-              </div>
+                    {concentrateProducts.map((p) => (
+                      <option key={p.productId} value={p.productId}>
+                        {p.productName} {p.productModelCode ? `(${p.productModelCode})` : ''} — คงเหลือ:{' '}
+                        {p.stockQty ?? 0} {p.unitName || 'แกลลอน'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-cyan-400 mb-2">
-                  1.2 สินค้าน้ำยาผสม (รับเข้า) *
-                </label>
-                <select
-                  value={mixedId}
-                  onChange={(e) => setMixedId(e.target.value)}
-                  className="w-full bg-[#090d16] border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-400"
-                  required
-                >
-                  <option value="">-- เลือกสินค้าน้ำยาผสม --</option>
-                  {products.map((p) => (
-                    <option key={p.product_id} value={p.product_id}>
-                      [{p.sku || p.product_id}] {p.product_name} (คงเหลือ: {getProductStock(p.product_id)})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* 2. จำนวนหัวเชื้อที่ใช้ */}
-            <div className="bg-[#090d16] border border-slate-800 p-4 rounded-xl space-y-3">
-              <label className="block text-sm font-medium text-emerald-400">
-                2. จำนวนหัวเชื้อที่เบิกมาผสม (หน่วย) *
-              </label>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                <input
-                  type="number"
-                  min={1}
-                  step="any"
-                  value={mixAmount}
-                  onChange={(e) => setMixAmount(Number(e.target.value))}
-                  className="w-full sm:w-48 bg-[#0d1322] border border-emerald-500/40 rounded-xl px-4 py-3 text-xl font-bold text-white focus:outline-none focus:border-emerald-400"
-                  required
-                />
-                <div className="flex items-center gap-2 text-sm bg-emerald-500/10 border border-emerald-500/20 px-4 py-3 rounded-xl text-emerald-300">
-                  <span>ผลลัพธ์ที่ได้ (x2):</span>
-                  <strong className="text-lg text-white">{(mixAmount || 0) * 2}</strong>
-                  <span>หน่วยน้ำยาผสมพร้อมใช้</span>
+                <div>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                    2. จำนวนหัวเชื้อที่เบิก (ถัง / แกลลอน) *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-indigo-500 font-bold"
+                    value={batchQty}
+                    onChange={(e) => setBatchQty(Number(e.target.value))}
+                  />
                 </div>
               </div>
-            </div>
 
-            {/* 3. พนักงานผู้เบิก */}
-            <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-emerald-400 mb-2">
-                <UserCheck className="w-4 h-4" />
-                3. พนักงานผู้เบิก *
-              </label>
-              <select
-                value={mixEmployeeId}
-                onChange={(e) => setMixEmployeeId(e.target.value)}
-                className="w-full bg-[#090d16] border border-emerald-500/40 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-400"
-                required
-              >
-                <option value="">-- กรุณาเลือกพนักงานผู้เบิกจากรายชื่อ --</option>
-                {employees.map((emp) => (
-                  <option key={emp.employee_id} value={emp.employee_id}>
-                    [{emp.employee_id}] {emp.employee_name} ({emp.employee_role})
-                  </option>
-                ))}
-              </select>
-            </div>
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <label className="flex items-center gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="w-5 h-5 accent-indigo-500 rounded cursor-pointer"
+                    checked={isDilutionProcess}
+                    onChange={(e) => setIsDilutionProcess(e.target.checked)}
+                  />
+                  <span className="text-sm font-bold text-white">
+                    ทำการผสมน้ำยา ณ คลังกลาง (Dilution Process — อัตราส่วน 1 : 2)
+                  </span>
+                </label>
 
-            {/* 4. หมายเหตุ */}
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                4. หมายเหตุบันทึกคลัง
-              </label>
-              <input
-                type="text"
-                value={mixNote}
-                onChange={(e) => setMixNote(e.target.value)}
-                placeholder="เช่น เบิกผสมน้ำยาถังใหญ่ประจำสัปดาห์..."
-                className="w-full bg-[#090d16] border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-400"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full py-3.5 px-6 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-900/40 transition flex items-center justify-center gap-2"
-            >
-              {submitting ? 'กำลังบันทึกข้อมูล...' : 'ยืนยันการเบิกผสมน้ำยา (1:2)'}
-            </button>
-          </form>
-        )}
-
-        {/* Sub-Tab B: จัดส่งลูกค้า */}
-        {activeSubTab === 'delivery' && (
-          <form
-            onSubmit={handleDeliverySubmit}
-            className="bg-[#0d1322] border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl"
-          >
-            <div className="border-b border-slate-800 pb-4">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Truck className="w-5 h-5 text-cyan-400" />
-                บันทึกการจัดส่งน้ำยาให้ลูกค้า
-              </h2>
-              <p className="text-xs text-slate-400 mt-1">
-                เลือกประเภทน้ำยา ค้นหาลูกค้า และแนบภาพถ่ายหลักฐานการจัดส่ง
-              </p>
-            </div>
-
-            {/* 1. เลือกประเภทน้ำยาที่จะจัดส่ง */}
-            <div>
-              <label className="block text-sm font-medium text-cyan-400 mb-2">
-                1. ประเภทน้ำยาที่จัดส่ง *
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setDeliveryChemType('mixed')}
-                  className={`p-3.5 rounded-xl border text-left transition ${
-                    deliveryChemType === 'mixed'
-                      ? 'bg-cyan-500/15 border-cyan-400 text-white'
-                      : 'bg-[#090d16] border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="font-semibold text-sm">น้ำยาผสมพร้อมใช้</div>
-                  <div className="text-xs text-cyan-400 mt-1">
-                    คงเหลือ: {getProductStock(mixedId)} หน่วย
+                {isDilutionProcess ? (
+                  <div className="bg-indigo-950/30 border border-indigo-500/30 rounded-xl p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div className="text-xs text-slate-300">
+                      สรุปยอดการแปลงสต็อกอัตโนมัติ (1 ถังหัวเชื้อ ➔ 2 ถังผสม):
+                    </div>
+                    <div className="flex items-center gap-3 font-mono text-sm">
+                      <span className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-lg font-bold">
+                        ตัดหัวเชื้อ -{batchQty || 0} ถัง
+                      </span>
+                      <ArrowRight size={16} className="text-slate-400" />
+                      <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg font-bold">
+                        ได้น้ำยาผสม +{expectedMixedYield} ถัง
+                      </span>
+                    </div>
                   </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setDeliveryChemType('concentrate')}
-                  className={`p-3.5 rounded-xl border text-left transition ${
-                    deliveryChemType === 'concentrate'
-                      ? 'bg-amber-500/15 border-amber-400 text-white'
-                      : 'bg-[#090d16] border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="font-semibold text-sm">น้ำยาหัวเชื้อเข้มข้น</div>
-                  <div className="text-xs text-amber-400 mt-1">
-                    คงเหลือ: {getProductStock(concentrateId)} หน่วย
+                ) : (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-300 flex items-center gap-2">
+                    <AlertTriangle size={16} className="shrink-0" />
+                    <span>เบิกน้ำยาออกไปเตรียมไว้โดย ไม่ผ่านกระบวนการผสมน้ำ (ตัดหัวเชื้อออกอย่างเดียว)</span>
                   </div>
-                </button>
+                )}
               </div>
-            </div>
 
-            {/* 2. ค้นหาและเลือกลูกค้า */}
-            <div className="relative">
-              <label className="block text-sm font-medium text-cyan-400 mb-2">
-                2. ค้นหาลูกค้า (รหัส / ชื่อร้าน / บริษัท / ชื่อผู้ติดต่อ / เบอร์โทร) *
-              </label>
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+              {/* 3. ช่องพนักงานผู้เบิก */}
+              <div>
+                <label className="block text-xs md:text-sm text-emerald-400 mb-2 font-semibold flex items-center gap-1.5">
+                  <UserCheck size={16} /> 3. พนักงานผู้เบิก *
+                </label>
+                <select
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
+                  value={selectedEmployeeId}
+                  onChange={(e) => setSelectedEmployeeId(e.target.value ? Number(e.target.value) : '')}
+                  required
+                >
+                  <option value="" disabled>
+                    -- กรุณาเลือกพนักงานผู้เบิกจากรายชื่อ --
+                  </option>
+                  {employees.map((empItem: any, idx: number) => {
+                    const empId = empItem.employeeId ?? empItem.id ?? idx + 1;
+                    const empName = `${empItem.firstName || empItem.name || ''} ${empItem.lastName || ''}`.trim() || `พนักงาน #${empId}`;
+                    return (
+                      <option key={empId} value={empId}>
+                        #{empId} {empName}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* 4. หมายเหตุบันทึกคลัง */}
+              <div>
+                <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                  4. หมายเหตุบันทึกคลัง
+                </label>
                 <input
                   type="text"
-                  value={customerSearch}
-                  onFocus={() => setShowCustomerDropdown(true)}
-                  onChange={(e) => {
-                    setCustomerSearch(e.target.value);
-                    setShowCustomerDropdown(true);
-                    if (selectedCustomer) setSelectedCustomer(null);
-                  }}
-                  placeholder="พิมพ์ชื่อร้าน, บริษัท, เบอร์โทร หรือรหัสลูกค้า..."
-                  className="w-full bg-[#090d16] border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-cyan-400"
+                  placeholder="เช่น เบิกผสมน้ำยาถังใหญ่ประจำสัปดาห์..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-indigo-500"
+                  value={batchRemark}
+                  onChange={(e) => setBatchRemark(e.target.value)}
                 />
               </div>
 
-              {selectedCustomer && (
-                <div className="mt-2 p-3 bg-cyan-500/10 border border-cyan-500/40 rounded-xl flex items-center justify-between">
-                  <div className="text-sm">
-                    <span className="font-bold text-cyan-300">
-                      [{selectedCustomer.customer_id}] {selectedCustomer.shop_name || selectedCustomer.company_name || selectedCustomer.customer_name}
-                    </span>
-                    <span className="text-xs text-slate-400 block">
-                      ผู้ติดต่อ: {selectedCustomer.contact_name || '-'} | โทร: {selectedCustomer.phone || '-'}
-                    </span>
-                  </div>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-sm transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
+              >
+                {isSubmitting ? (
+                  'กำลังบันทึก...'
+                ) : isDilutionProcess ? (
+                  <>
+                    <CheckCircle2 size={18} /> ยืนยันผสมน้ำยา (ตัดหัวเชื้อ {batchQty || 0} ถัง ➔ เพิ่มน้ำยาผสม {expectedMixedYield} ถัง)
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={18} /> บันทึกตัดสต็อกหัวเชื้อ ({batchQty || 0} ถัง)
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl space-y-6">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-4">
+              <Truck className="text-emerald-400" size={20} /> ฟอร์มเปิดบิลจัดส่งน้ำยาให้ลูกค้า (Delivery Order)
+            </h2>
+
+            <form onSubmit={handleDeliverySubmit} className="space-y-5">
+              {/* 1. ติ๊กเลือกประเภทน้ำยาก่อนจัดส่ง */}
+              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5">
+                <label className="block text-xs md:text-sm text-slate-400 font-medium">
+                  1. เลือกประเภทน้ำยาที่ต้องการจัดส่ง *
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label
+                    onClick={() => {
+                      setDeliveryType('MIXED');
+                      setDeliveryProductId('');
+                    }}
+                    className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                      deliveryType === 'MIXED'
+                        ? 'bg-emerald-600/20 border-emerald-500 text-white font-bold'
+                        : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="deliveryType"
+                      checked={deliveryType === 'MIXED'}
+                      onChange={() => {}}
+                      className="w-4 h-4 accent-emerald-500"
+                    />
+                    <div>
+                      <div className="text-sm">🧪 น้ำยาผสมแล้ว (Mix)</div>
+                      <div className="text-[11px] font-normal text-slate-400">
+                        ตัดสต็อกรายการน้ำยาที่ผสมพร้อมใช้งาน ({mixedProducts.length} รายการ)
+                      </div>
+                    </div>
+                  </label>
+
+                  <label
+                    onClick={() => {
+                      setDeliveryType('CONCENTRATE');
+                      setDeliveryProductId('');
+                    }}
+                    className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                      deliveryType === 'CONCENTRATE'
+                        ? 'bg-amber-600/20 border-amber-500 text-white font-bold'
+                        : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="deliveryType"
+                      checked={deliveryType === 'CONCENTRATE'}
+                      onChange={() => {}}
+                      className="w-4 h-4 accent-amber-500"
+                    />
+                    <div>
+                      <div className="text-sm">💧 หัวเชื้อน้ำยา (Pure)</div>
+                      <div className="text-[11px] font-normal text-slate-400">
+                        ตัดสต็อกแกลลอนหัวเชื้อโดยตรง ({concentrateProducts.length} รายการ)
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* 2. เลือกรายการน้ำยา & จำนวน */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                    2. เลือก{deliveryType === 'MIXED' ? 'น้ำยาผสมแล้ว' : 'หัวเชื้อน้ำยา'} *
+                  </label>
+                  <select
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
+                    value={deliveryProductId}
+                    onChange={(e) => setDeliveryProductId(Number(e.target.value))}
+                  >
+                    <option value="" disabled>
+                      -- เลือก{deliveryType === 'MIXED' ? 'น้ำยาผสมแล้ว' : 'หัวเชื้อ'}สำหรับจัดส่ง --
+                    </option>
+                    {currentDeliveryOptions.map((p) => (
+                      <option key={p.productId} value={p.productId}>
+                        #{p.productId} {p.productName}{' '}
+                        {p.productModelCode ? `[${p.productModelCode}]` : ''} — คงเหลือ:{' '}
+                        {p.stockQty ?? 0} {p.unitName || 'ถัง'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                    3. จำนวนที่จัดส่ง *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 font-bold"
+                    value={deliveryQty}
+                    onChange={(e) => setDeliveryQty(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+
+              {/* 3. เลือกร้านค้าลูกค้า (แบบค้นหาได้เหมือนหน้าเครื่องจักร) & เลขที่ใบส่งของ */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+                <div ref={customerDropdownRef} className="relative">
+                  <label className="block text-xs md:text-sm text-blue-400 mb-2 font-semibold flex items-center gap-1.5">
+                    <UserCheck size={16} /> 4. เลือกร้านค้า / ลูกค้าผู้รับน้ำยา (เรียงตามรหัสลูกค้า) * ({customers.length} รายการ)
+                  </label>
+
+                  {/* ปุ่มหลักสำหรับกดเปิด/ปิด Dropdown */}
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedCustomer(null);
-                      setCustomerSearch('');
-                    }}
-                    className="p-1.5 text-slate-400 hover:text-rose-400"
+                    onClick={() => setIsCustomerDropdownOpen((prev) => !prev)}
+                    className={`w-full bg-slate-950 border rounded-xl p-3 text-left text-sm flex items-center justify-between transition ${
+                      isCustomerDropdownOpen
+                        ? 'border-blue-500 ring-1 ring-blue-500/40'
+                        : 'border-slate-700 hover:border-slate-600'
+                    }`}
                   >
-                    <X className="w-4 h-4" />
+                    {selectedCustomerObj ? (
+                      <div className="flex items-center gap-2 truncate pr-2">
+                        <span className="px-2 py-0.5 bg-blue-950 text-blue-400 border border-blue-800/60 rounded text-xs font-bold font-mono shrink-0">
+                          #{selectedCustomerObj.customer_id}
+                        </span>
+                        <span className="text-white font-semibold truncate">
+                          {selectedCustomerObj.customer_name}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-slate-300">-- ค้นหาและเลือกลูกค้า --</span>
+                    )}
+                    <ChevronDown
+                      size={18}
+                      className={`text-slate-400 shrink-0 transition-transform ${
+                        isCustomerDropdownOpen ? 'rotate-180' : ''
+                      }`}
+                    />
                   </button>
-                </div>
-              )}
 
-              {showCustomerDropdown && !selectedCustomer && (
-                <div className="absolute z-20 w-full mt-1 max-h-60 overflow-y-auto bg-[#0f172a] border border-slate-700 rounded-xl shadow-2xl divide-y divide-slate-800">
-                  {filteredCustomers.length === 0 ? (
-                    <div className="p-4 text-sm text-slate-400 text-center">ไม่พบข้อมูลลูกค้า</div>
-                  ) : (
-                    filteredCustomers.slice(0, 30).map((cust) => (
-                      <button
-                        key={cust.customer_id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedCustomer(cust);
-                          setCustomerSearch(
-                            cust.shop_name || cust.company_name || cust.customer_name || `ลูกค้า #${cust.customer_id}`
-                          );
-                          setShowCustomerDropdown(false);
-                        }}
-                        className="w-full text-left px-4 py-3 hover:bg-slate-800 transition"
-                      >
-                        <div className="font-semibold text-sm text-white">
-                          <span className="text-cyan-400 mr-2">[{cust.customer_id}]</span>
-                          {cust.shop_name || cust.company_name || cust.customer_name}
-                        </div>
-                        <div className="text-xs text-slate-400 mt-0.5">
-                          {cust.company_name && cust.shop_name ? `${cust.company_name} • ` : ''}
-                          ติดต่อ: {cust.contact_name || '-'} • โทร: {cust.phone || '-'}
-                        </div>
-                      </button>
-                    ))
+                  {/* กล่องค้นหาและรายการลูกค้าแบบการ์ด */}
+                  {isCustomerDropdownOpen && (
+                    <div className="mt-2 bg-slate-950 border border-slate-700 rounded-xl p-3 shadow-2xl space-y-2.5 z-30">
+                      {/* ช่องพิมพ์ค้นหา */}
+                      <div className="relative">
+                        <Search
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                          size={15}
+                        />
+                        <input
+                          type="text"
+                          autoFocus
+                          placeholder="ค้นหารหัส, ชื่อร้าน, บริษัท, ชื่อผู้ติดต่อ, เบอร์โทร..."
+                          className="w-full bg-slate-900 border border-blue-500/70 rounded-lg pl-9 pr-8 py-2.5 text-xs md:text-sm text-white placeholder-slate-400 outline-none focus:border-blue-400"
+                          value={customerSearchTerm}
+                          onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                        />
+                        {customerSearchTerm && (
+                          <button
+                            type="button"
+                            onClick={() => setCustomerSearchTerm('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* รายการลูกค้าแบบ Scrollable */}
+                      <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
+                        {filteredCustomers.length === 0 ? (
+                          <div className="py-6 text-center text-xs text-slate-400">
+                            {loading ? 'กำลังโหลดรายชื่อลูกค้า...' : 'ไม่พบข้อมูลลูกค้าที่ค้นหา'}
+                          </div>
+                        ) : (
+                          filteredCustomers.map((c) => {
+                            const isSelected = c.customer_id === Number(selectedCustomerId);
+                            return (
+                              <div
+                                key={c.customer_id}
+                                onClick={() => {
+                                  setSelectedCustomerId(c.customer_id);
+                                  setIsCustomerDropdownOpen(false);
+                                }}
+                                className={`p-3 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
+                                  isSelected
+                                    ? 'bg-blue-950/50 border-blue-500/70'
+                                    : 'bg-slate-900/70 hover:bg-slate-900 border-slate-800/80 hover:border-slate-700'
+                                }`}
+                              >
+                                {/* ป้ายรหัสลูกค้า #ID */}
+                                <span className="px-2 py-0.5 bg-blue-950 text-blue-400 border border-blue-800/60 rounded text-xs font-bold font-mono shrink-0 mt-0.5">
+                                  #{c.customer_id}
+                                </span>
+
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  {/* ชื่อร้าน */}
+                                  <div className="text-sm font-bold text-white truncate">
+                                    {c.customer_name}
+                                  </div>
+
+                                  {/* รายละเอียด บจก/บริษัท, คอนแท็ก, เบอร์โทร */}
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                                    {c.customer_taxname && (
+                                      <span className="text-amber-400 flex items-center gap-1 truncate max-w-full">
+                                        <Building2 size={12} className="shrink-0" />
+                                        บจก/บริษัท: {c.customer_taxname}
+                                      </span>
+                                    )}
+                                    {c.customer_contact_name && (
+                                      <span className="text-indigo-300 flex items-center gap-1">
+                                        <User size={12} className="shrink-0" />
+                                        คอนแท็ก: {c.customer_contact_name}
+                                      </span>
+                                    )}
+                                    {c.customer_number && (
+                                      <span className="text-emerald-400 flex items-center gap-1 font-mono">
+                                        <Phone size={12} className="shrink-0" />
+                                        {c.customer_number}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
 
-            {/* 3. จำนวนที่จัดส่ง & พนักงานผู้จัดส่ง */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                    5. เลขที่ใบส่งของ (Delivery No.)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="เช่น DO-2026-001 (ปล่อยว่างเพื่อสร้างอัตโนมัติ)"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 font-mono"
+                    value={deliveryRef}
+                    onChange={(e) => setDeliveryRef(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* 4. หมายเหตุการจัดส่ง */}
               <div>
-                <label className="block text-sm font-medium text-cyan-400 mb-2">
-                  3. จำนวนที่จัดส่ง (หน่วย) *
+                <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                  6. หมายเหตุการจัดส่ง
                 </label>
                 <input
-                  type="number"
-                  min={1}
-                  step="any"
-                  value={deliveryQty}
-                  onChange={(e) => setDeliveryQty(Number(e.target.value))}
-                  className="w-full bg-[#090d16] border border-slate-700 rounded-xl px-4 py-3 text-white font-bold focus:outline-none focus:border-cyan-400"
-                  required
+                  type="text"
+                  placeholder="เช่น จัดส่งรอบประจำสัปดาห์..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500"
+                  value={deliveryRemark}
+                  onChange={(e) => setDeliveryRemark(e.target.value)}
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-cyan-400 mb-2">
-                  4. พนักงานผู้จัดส่ง *
+              {/* 5. ถ่ายรูป / แนบหลักฐานการจัดส่ง */}
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <label className="block text-xs md:text-sm text-slate-300 font-bold flex items-center gap-2">
+                  <Camera className="text-emerald-400" size={18} /> 7. ถ่ายรูปหลักฐานการจัดส่ง (ไม่บังคับ)
                 </label>
-                <select
-                  value={deliveryEmployeeId}
-                  onChange={(e) => setDeliveryEmployeeId(e.target.value)}
-                  className="w-full bg-[#090d16] border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-400"
-                  required
-                >
-                  <option value="">-- เลือกพนักงานผู้จัดส่ง --</option>
-                  {employees.map((emp) => (
-                    <option key={emp.employee_id} value={emp.employee_id}>
-                      [{emp.employee_id}] {emp.employee_name} ({emp.employee_role})
-                    </option>
+
+                {!photoPreview ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl cursor-pointer transition text-sm font-bold">
+                      <Camera size={18} /> ถ่ายรูปทันที (เปิดกล้อง)
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={handlePhotoChange}
+                      />
+                    </label>
+
+                    <label className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl cursor-pointer transition text-sm font-medium">
+                      <ImageIcon size={18} /> เลือกรูปจากเครื่อง
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handlePhotoChange}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="relative inline-block">
+                    <img
+                      src={photoPreview}
+                      alt="ตัวอย่างรูปหลักฐานจัดส่ง"
+                      className="max-h-56 rounded-xl border border-emerald-500/40 object-cover shadow-lg"
+                    />
+                    <button
+                      type="button"
+                      onClick={clearPhoto}
+                      className="absolute -top-2.5 -right-2.5 p-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-full shadow-md transition"
+                      title="ลบรูปภาพ"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-sm transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
+              >
+                {isSubmitting ? (
+                  'กำลังอัปโหลดและบันทึกข้อมูล...'
+                ) : (
+                  <>
+                    <CheckCircle2 size={18} /> ยืนยันเปิดบิลจัดส่ง & ตัดสต็อก FIFO
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* Live Stock Monitor Summary */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-6">
+          <div className="flex justify-between items-center">
+            <h3 className="font-bold text-base text-white flex items-center gap-2">
+              <Database className="text-indigo-400" size={18} /> สต็อกคลังสินค้าล่าสุด (Live Stock Monitor)
+            </h3>
+            <span className="px-2.5 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-lg text-xs font-bold">
+              Realtime
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="py-8 text-center text-slate-500 text-sm">กำลังโหลดข้อมูลสต็อก...</div>
+          ) : (
+            <div className="space-y-5">
+              <div>
+                <div className="text-xs font-bold text-emerald-400 mb-2.5 flex items-center gap-1.5">
+                  🧪 สต็อกน้ำยาผสมแล้ว (พร้อมจัดส่งลูกค้า)
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {mixedProducts.map((p) => (
+                    <div
+                      key={p.productId}
+                      className="bg-slate-950 border border-emerald-500/20 rounded-xl p-4 space-y-1"
+                    >
+                      <div className="text-slate-300 text-xs font-medium truncate" title={p.productName}>
+                        {p.productName}
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-mono truncate">
+                        {p.productModelCode || '-'}
+                      </div>
+                      <div
+                        className={`text-xl font-extrabold font-mono pt-1 ${
+                          (p.stockQty ?? 0) > 0 ? 'text-emerald-400' : 'text-rose-400'
+                        }`}
+                      >
+                        {p.stockQty ?? 0}{' '}
+                        <span className="text-xs font-normal text-slate-400">{p.unitName || 'ถัง'}</span>
+                      </div>
+                    </div>
                   ))}
-                </select>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-bold text-amber-400 mb-2.5 flex items-center gap-1.5">
+                  💧 สต็อกหัวเชื้อตั้งต้น (Pure)
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {concentrateProducts.map((p) => (
+                    <div
+                      key={p.productId}
+                      className="bg-slate-950 border border-amber-500/20 rounded-xl p-4 space-y-1"
+                    >
+                      <div className="text-slate-300 text-xs font-medium truncate" title={p.productName}>
+                        {p.productName}
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-mono truncate">
+                        {p.productModelCode || '-'}
+                      </div>
+                      <div
+                        className={`text-xl font-extrabold font-mono pt-1 ${
+                          (p.stockQty ?? 0) > 0 ? 'text-amber-400' : 'text-rose-400'
+                        }`}
+                      >
+                        {p.stockQty ?? 0}{' '}
+                        <span className="text-xs font-normal text-slate-400">
+                          {p.unitName || 'แกลลอน'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
+          )}
+        </div>
 
-            {/* 5. ถ่ายรูป / อัปโหลดหลักฐาน */}
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                5. ภาพถ่ายหลักฐานการจัดส่ง (ถ้ามี)
-              </label>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handlePhotoChange}
-                className="hidden"
-              />
-              {!photoPreview ? (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full py-6 border-2 border-dashed border-slate-700 hover:border-cyan-500/60 rounded-xl flex flex-col items-center justify-center gap-2 text-slate-400 hover:text-cyan-400 transition bg-[#090d16]"
-                >
-                  <Camera className="w-7 h-7" />
-                  <span className="text-sm font-medium">คลิกเพื่อถ่ายรูป หรือเลือกไฟล์รูปภาพ</span>
-                </button>
-              ) : (
-                <div className="relative rounded-xl overflow-hidden border border-slate-700 bg-[#090d16]">
-                  <img
-                    src={photoPreview}
-                    alt="หลักฐานการจัดส่ง"
-                    className="max-h-64 w-full object-contain"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPhotoFile(null);
-                      setPhotoPreview(null);
-                    }}
-                    className="absolute top-2 right-2 p-2 bg-rose-600 text-white rounded-lg shadow-lg hover:bg-rose-500"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 6. หมายเหตุ */}
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                6. หมายเหตุการจัดส่ง
-              </label>
+        {/* Chemical Transaction History Table */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <h3 className="font-bold text-base text-white flex items-center gap-2">
+              <History className="text-amber-400" size={18} /> ประวัติการผสมน้ำยาและการจัดส่งล่าสุด
+            </h3>
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
               <input
                 type="text"
-                value={deliveryNote}
-                onChange={(e) => setDeliveryNote(e.target.value)}
-                placeholder="เช่น ส่งหน้าสาขา, วางบิลเรียบร้อย..."
-                className="w-full bg-[#090d16] border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-400"
+                placeholder="ค้นหาเลขบิล, ชื่อน้ำยา, ลูกค้า, ผู้เบิก..."
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-white outline-none focus:border-indigo-500"
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
               />
             </div>
+          </div>
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full py-3.5 px-6 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-700 text-white font-bold rounded-xl shadow-lg shadow-cyan-900/40 transition flex items-center justify-center gap-2"
-            >
-              {submitting ? 'กำลังบันทึกการจัดส่ง...' : 'ยืนยันการจัดส่งและตัดสต็อก'}
-            </button>
-          </form>
-        )}
+          <div className="overflow-x-auto rounded-xl border border-slate-800">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase">
+                  <th className="p-3.5">วันเวลา</th>
+                  <th className="p-3.5">เลขที่อ้างอิง</th>
+                  <th className="p-3.5">ประเภท / รายการน้ำยา</th>
+                  <th className="p-3.5 text-center">จำนวน</th>
+                  <th className="p-3.5">รายละเอียด / ผู้เบิก / ลูกค้า</th>
+                  <th className="p-3.5 text-center">หลักฐานรูป</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800 text-slate-300">
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-500">
+                      กำลังโหลดประวัติ...
+                    </td>
+                  </tr>
+                ) : chemicalHistory.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-500">
+                      ยังไม่มีประวัติการทำรายการน้ำยา
+                    </td>
+                  </tr>
+                ) : (
+                  chemicalHistory.slice(0, 15).map((tx) => {
+                    const isMixed = tx.product ? isMixedChemical(tx.product) : false;
+                    const { text: cleanRemark, photoUrl } = parseRemarkAndPhoto(tx.remark);
+
+                    return (
+                      <tr key={tx.transactionId} className="hover:bg-slate-800/40 transition">
+                        <td className="p-3.5 font-mono text-slate-400 whitespace-nowrap">
+                          {new Date(tx.transactionDate).toLocaleString('th-TH')}
+                        </td>
+                        <td className="p-3.5 font-mono font-bold text-indigo-400 whitespace-nowrap">
+                          {tx.referenceNo || '-'}
+                        </td>
+                        <td className="p-3.5 font-medium text-white">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                isMixed
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                  : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                              }`}
+                            >
+                              {isMixed ? 'น้ำยาผสม' : 'หัวเชื้อ'}
+                            </span>
+                            <span>{tx.product?.productName || '-'}</span>
+                          </div>
+                        </td>
+                        <td className="p-3.5 text-center font-bold">
+                          <span
+                            className={`px-2 py-0.5 rounded ${
+                              tx.transactionType === 'IN'
+                                ? 'bg-emerald-500/10 text-emerald-400'
+                                : 'bg-rose-500/10 text-rose-400'
+                            }`}
+                          >
+                            {tx.transactionType === 'IN' ? '+' : '-'}
+                            {tx.quantity}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-slate-400">{cleanRemark}</td>
+                        <td className="p-3.5 text-center">
+                          {photoUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => setViewingPhotoUrl(photoUrl)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-[11px] font-bold transition"
+                            >
+                              <Camera size={13} /> ดูรูป
+                            </button>
+                          ) : (
+                            <span className="text-slate-600">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
-    </div>
+
+      {/* Modal แสดงรูปภาพหลักฐานการจัดส่ง */}
+      {viewingPhotoUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setViewingPhotoUrl(null)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl p-4 max-w-2xl w-full space-y-3 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center border-b border-slate-800 pb-2.5">
+              <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                <Camera className="text-emerald-400" size={16} /> รูปภาพหลักฐานการจัดส่ง
+              </h4>
+              <div className="flex items-center gap-2">
+                <a
+                  href={viewingPhotoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-indigo-400 hover:underline flex items-center gap-1"
+                >
+                  เปิดแท็บใหม่ <ExternalLink size={12} />
+                </a>
+                <button
+                  onClick={() => setViewingPhotoUrl(null)}
+                  className="p-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="flex justify-center bg-slate-950 rounded-xl p-2">
+              <img
+                src={viewingPhotoUrl}
+                alt="หลักฐานการจัดส่ง"
+                className="max-h-[70vh] rounded-lg object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
   );
 }
