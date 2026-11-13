@@ -1425,7 +1425,7 @@ export default function ChemicalSystemPage() {
                     return (
                       <tr key={tx.transactionId} className="hover:bg-slate-800/40 transition">
                         <td className="p-3.5 font-mono text-slate-400 whitespace-nowrap">
-                          {new Date(tx.transactionDate).toLocaleString('th-TH')}
+                          {new Date(tx.transactionDate).toLocaleString('th-TH', { timeZone: 'UTC' })}
                         </td>
                         <td className="p-3.5 font-mono font-bold text-indigo-400 whitespace-nowrap">
                           {tx.referenceNo || '-'}

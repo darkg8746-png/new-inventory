@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+// สร้างเวลาไทย (UTC+7) สำหรับบันทึกลงคอลัมน์ timestamp ตรงๆ
+function getThaiDate() {
+  const now = new Date();
+  return new Date(now.getTime() + 7 * 60 * 60 * 1000);
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -69,7 +75,7 @@ export async function POST(request: Request) {
             originalQty: currentStock,
             remainingQty: currentStock,
             lotStatus: 'Active',
-            receiveDate: new Date(),
+            receiveDate: getThaiDate(),
           },
         });
         activeLots = [fallbackLot];
@@ -108,14 +114,14 @@ export async function POST(request: Request) {
         throw new Error(`สต็อกใน Lot ไม่เพียงพอสำหรับตัดจำหน่าย (ขาดอีก ${qtyToDeduct})`);
       }
 
+      const thaiNow = getThaiDate();
       const finalOrderNo =
         referenceNo?.trim() ||
-        `DO-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
+        `DO-${thaiNow.getUTCFullYear()}${String(thaiNow.getUTCMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
       const avgUnitCost = qtyNum > 0 ? totalCostApplied / qtyNum : Number(product.unitCost || 0);
       const unitSalePrice = Number(product.salePrice || 0);
       const totalSalePrice = unitSalePrice * qtyNum;
-      const now = new Date();
 
       // 2. สร้างหัวบิลลงตาราง consumable_orders (1 บิล = 1 แถว เก็บค่าขนส่งและข้อมูลจัดส่ง)
       const insertedOrders = await tx.$queryRaw<{ order_id: number }[]>`
@@ -143,8 +149,8 @@ export async function POST(request: Request) {
           ${custIdNum},
           ${empIdNum},
           ${externalSenderName || null},
-          ${now},
-          ${now}::date,
+          ${thaiNow},
+          ${thaiNow}::date,
           ${totalCostApplied},
           ${totalSalePrice},
           'Delivered',
@@ -195,7 +201,7 @@ export async function POST(request: Request) {
           productId: prodIdNum,
           transactionType: 'OUT',
           quantity: qtyNum,
-          transactionDate: now,
+          transactionDate: thaiNow,
           transactionUnitCost: avgUnitCost,
           referenceNo: finalOrderNo,
           remark: finalRemark,
