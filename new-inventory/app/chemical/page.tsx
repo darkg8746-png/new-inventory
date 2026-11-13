@@ -100,7 +100,8 @@ export default function ChemicalSystemPage() {
   const [deliveryProductId, setDeliveryProductId] = useState<number | ''>('');
   const [deliveryQty, setDeliveryQty] = useState<number>(1);
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | ''>('');
-  const [deliveryEmployeeId, setDeliveryEmployeeId] = useState<number | ''>('');
+  const [deliveryEmployeeId, setDeliveryEmployeeId] = useState<string>('');
+  const [externalSenderName, setExternalSenderName] = useState<string>('');
   const [orderReason, setOrderReason] = useState<string>('ส่งตามรอบปกติ (Standard Delivery)');
   const [deliveryChannel, setDeliveryChannel] = useState<'PM_ROUND' | 'DIRECT_TECH' | 'EXPRESS'>('PM_ROUND');
   const [courierName, setCourierName] = useState<string>('');
@@ -385,6 +386,9 @@ export default function ChemicalSystemPage() {
     if (deliveryQty <= 0) return alert('กรุณาระบุจำนวนมากกว่า 0');
     if (!selectedCustomerId) return alert('กรุณาเลือกร้านค้าลูกค้าผู้รับน้ำยา');
     if (!deliveryEmployeeId) return alert('กรุณาเลือกพนักงานผู้จัดส่ง / ผู้รับผิดชอบ');
+    if (deliveryEmployeeId === 'EXTERNAL' && !externalSenderName.trim()) {
+      return alert('กรุณาพิมพ์ระบุชื่อคนนอก / ผู้จัดส่ง');
+    }
 
     setIsSubmitting(true);
     let uploadedPhotoUrl: string | null = null;
@@ -414,10 +418,14 @@ export default function ChemicalSystemPage() {
         uploadedPhotoUrl = publicUrlData.publicUrl;
       }
 
-      const selectedSender = employees.find(
-        (emp, idx) => Number(getEmpId(emp, idx)) === Number(deliveryEmployeeId)
-      );
-      const senderName = selectedSender
+      const isExternalSender = deliveryEmployeeId === 'EXTERNAL';
+      const selectedSender = !isExternalSender
+        ? employees.find((emp, idx) => Number(getEmpId(emp, idx)) === Number(deliveryEmployeeId))
+        : null;
+
+      const senderName = isExternalSender
+        ? `คนนอก: ${externalSenderName.trim()}`
+        : selectedSender
         ? getEmpDisplayName(selectedSender, deliveryEmployeeId)
         : `ID: ${deliveryEmployeeId}`;
 
@@ -439,7 +447,7 @@ export default function ChemicalSystemPage() {
           productId: Number(deliveryProductId),
           quantity: Number(deliveryQty),
           customerId: Number(selectedCustomerId),
-          employeeId: Number(deliveryEmployeeId),
+          employeeId: isExternalSender ? null : Number(deliveryEmployeeId),
           orderReason,
           deliveryChannel,
           courierName: deliveryChannel === 'EXPRESS' ? courierName : null,
@@ -460,6 +468,7 @@ export default function ChemicalSystemPage() {
         setSelectedCustomerId('');
         setCustomerSearchTerm('');
         setDeliveryEmployeeId('');
+        setExternalSenderName('');
         setOrderReason('ส่งตามรอบปกติ (Standard Delivery)');
         setDeliveryChannel('PM_ROUND');
         setCourierName('');
@@ -962,23 +971,29 @@ export default function ChemicalSystemPage() {
                 </div>
               </div>
 
-              {/* 4. พนักงานผู้ส่ง & เหตุผลการจัดส่ง (Order Reason) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div>
-                  <label className="block text-xs md:text-sm text-emerald-400 mb-2 font-semibold flex items-center gap-1.5">
+              {/* 4. พนักงานผู้ส่ง (รองรับคนนอก) & เหตุผลการจัดส่ง (Order Reason) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+                <div className="space-y-2.5">
+                  <label className="block text-xs md:text-sm text-emerald-400 font-semibold flex items-center gap-1.5">
                     <UserCheck size={16} /> 6. รายชื่อพนักงานผู้ส่ง / ผู้รับผิดชอบ *
                   </label>
                   <select
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
                     value={deliveryEmployeeId}
-                    onChange={(e) => setDeliveryEmployeeId(e.target.value ? Number(e.target.value) : '')}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDeliveryEmployeeId(val);
+                      if (val !== 'EXTERNAL') {
+                        setExternalSenderName('');
+                      }
+                    }}
                     required
                   >
                     <option value="" disabled>
                       -- กรุณาเลือกพนักงานผู้ส่งจากรายชื่อ --
                     </option>
                     {employees.map((empItem: any, idx: number) => {
-                      const empId = getEmpId(empItem, idx);
+                      const empId = String(getEmpId(empItem, idx));
                       const empLabel = getEmpDisplayName(empItem, empId);
                       return (
                         <option key={empId} value={empId}>
@@ -986,7 +1001,22 @@ export default function ChemicalSystemPage() {
                         </option>
                       );
                     })}
+                    <option value="EXTERNAL">
+                      🚚 คนนอก / ผู้ส่งอิสระ (พิมพ์ระบุชื่อเอง)
+                    </option>
                   </select>
+
+                  {deliveryEmployeeId === 'EXTERNAL' && (
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="พิมพ์ระบุชื่อคนนอก / เบอร์โทร / ทะเบียนรถ..."
+                      className="w-full bg-slate-950 border border-amber-500/70 rounded-xl p-3 text-white text-sm outline-none focus:border-amber-400"
+                      value={externalSenderName}
+                      onChange={(e) => setExternalSenderName(e.target.value)}
+                      required
+                    />
+                  )}
                 </div>
 
                 <div>
