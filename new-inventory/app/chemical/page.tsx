@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {
   ArrowLeft,
@@ -23,6 +23,10 @@ import {
   User,
   Phone,
   ArrowRight,
+  Trophy,
+  PackageCheck,
+  AlertCircle,
+  BarChart3,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -110,6 +114,9 @@ export default function ChemicalSystemPage() {
   const [shippingPayer, setShippingPayer] = useState<'COMPANY' | 'CUSTOMER'>('COMPANY');
   const [deliveryRef, setDeliveryRef] = useState<string>('');
   const [deliveryRemark, setDeliveryRemark] = useState<string>('');
+
+  // Analytics Filter State (Sub-tab B)
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'THIS_MONTH' | 'THIS_YEAR' | 'ALL'>('ALL');
 
   // Searchable Customer Dropdown State
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
@@ -247,6 +254,108 @@ export default function ChemicalSystemPage() {
     }
     setLoading(false);
   };
+
+  // ประมวลผลสถิติการเบิกของร้านค้า & ช่องทางจัดส่ง สำหรับ Sub-tab B
+  const deliveryAnalytics = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getUTCMonth();
+    const currentYear = now.getUTCFullYear();
+
+    const customerMap: Record<
+      string,
+      { name: string; totalQty: number; deliveryCount: number; items: Record<string, number> }
+    > = {};
+    const channelMap: Record<string, { channel: string; count: number; totalQty: number }> = {};
+    const reasonStats = { normal: 0, urgent: 0, forgotPm: 0 };
+    const shippingStats = { companyPaid: 0, customerPaid: 0 };
+
+    const outboundTxs = transactions.filter((tx) => {
+      if (tx.transactionType !== 'OUT') return false;
+      const isDelivery =
+        (tx.remark || '').includes('[ลูกค้า:') || (tx.referenceNo || '').startsWith('DO-');
+      if (!isDelivery) return false;
+
+      if (analyticsPeriod !== 'ALL' && tx.transactionDate) {
+        const txDate = new Date(tx.transactionDate);
+        if (analyticsPeriod === 'THIS_MONTH') {
+          return txDate.getUTCMonth() === currentMonth && txDate.getUTCFullYear() === currentYear;
+        }
+        if (analyticsPeriod === 'THIS_YEAR') {
+          return txDate.getUTCFullYear() === currentYear;
+        }
+      }
+      return true;
+    });
+
+    outboundTxs.forEach((tx) => {
+      const qty = Math.abs(Number(tx.quantity || 0));
+      const remark = tx.remark || '';
+      const productName = tx.product?.productName || 'ไม่ระบุน้ำยา';
+
+      // 1. ดึงชื่อร้านค้า
+      const custMatch = remark.match(/\[ลูกค้า:\s*([^\]]+)\]/);
+      const customerName = custMatch ? custMatch[1].trim() : 'ไม่ระบุชื่อร้าน';
+
+      // 2. ดึงช่องทางจัดส่ง (รวบขนส่งเอกชนเข้ากลุ่มเดียวกัน)
+      const channelMatch = remark.match(/\[ช่องทาง:\s*([^\]]+)\]/);
+      let channelName = channelMatch ? channelMatch[1].trim() : 'ไม่ระบุช่องทาง';
+      if (channelName.startsWith('ขนส่งเอกชน')) {
+        channelName = 'ขนส่งเอกชน (Express Courier)';
+      }
+
+      // 3. คำนวณค่าขนส่งเอกชน (ถ้ามี)
+      const costMatch = remark.match(/ค่าส่ง:\s*(\d+(?:\.\d+)?)\s*บ\./);
+      if (costMatch) {
+        const costVal = Number(costMatch[1]);
+        if (remark.includes('[บริษัทจ่าย]')) {
+          shippingStats.companyPaid += costVal;
+        } else if (remark.includes('[เก็บลูกค้า]')) {
+          shippingStats.customerPaid += costVal;
+        }
+      }
+
+      // 4. แยกเหตุผลการจัดส่ง
+      if (remark.includes('ส่งตามหลัง') || remark.includes('ลืมส่ง')) {
+        reasonStats.forgotPm += qty;
+      } else if (remark.includes('ด่วน') || remark.includes('Urgent') || remark.includes('นอกรอบ')) {
+        reasonStats.urgent += qty;
+      } else {
+        reasonStats.normal += qty;
+      }
+
+      // 5. สะสมยอดตามร้านค้า
+      if (!customerMap[customerName]) {
+        customerMap[customerName] = { name: customerName, totalQty: 0, deliveryCount: 0, items: {} };
+      }
+      customerMap[customerName].totalQty += qty;
+      customerMap[customerName].deliveryCount += 1;
+      customerMap[customerName].items[productName] =
+        (customerMap[customerName].items[productName] || 0) + qty;
+
+      // 6. สะสมยอดตามช่องทางจัดส่ง
+      if (!channelMap[channelName]) {
+        channelMap[channelName] = { channel: channelName, count: 0, totalQty: 0 };
+      }
+      channelMap[channelName].count += 1;
+      channelMap[channelName].totalQty += qty;
+    });
+
+    const topCustomers = Object.values(customerMap)
+      .sort((a, b) => b.totalQty - a.totalQty)
+      .slice(0, 5);
+
+    const deliveryChannels = Object.values(channelMap).sort((a, b) => b.totalQty - a.totalQty);
+    const totalOutQty = outboundTxs.reduce((sum, tx) => sum + Math.abs(Number(tx.quantity || 0)), 0);
+
+    return {
+      topCustomers,
+      deliveryChannels,
+      totalOutQty,
+      totalBills: outboundTxs.length,
+      reasonStats,
+      shippingStats,
+    };
+  }, [transactions, analyticsPeriod]);
 
   const filteredCustomers = customers.filter((c) => {
     if (!customerSearchTerm.trim()) return true;
@@ -731,569 +840,797 @@ export default function ChemicalSystemPage() {
             </form>
           </div>
         ) : (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl space-y-6">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-4">
-              <Truck className="text-emerald-400" size={20} /> ฟอร์มเปิดบิลจัดส่งน้ำยาให้ลูกค้า (Delivery Order)
-            </h2>
+          <>
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl space-y-6">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-4">
+                <Truck className="text-emerald-400" size={20} /> ฟอร์มเปิดบิลจัดส่งน้ำยาให้ลูกค้า (Delivery Order)
+              </h2>
 
-            <form onSubmit={handleDeliverySubmit} className="space-y-5">
-              {/* 1. ติ๊กเลือกประเภทน้ำยาก่อนจัดส่ง */}
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5">
-                <label className="block text-xs md:text-sm text-slate-400 font-medium">
-                  1. เลือกประเภทน้ำยาที่ต้องการจัดส่ง *
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label
-                    onClick={() => {
-                      setDeliveryType('MIXED');
-                      setDeliveryProductId('');
-                    }}
-                    className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
-                      deliveryType === 'MIXED'
-                        ? 'bg-emerald-600/20 border-emerald-500 text-white font-bold'
-                        : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="deliveryType"
-                      checked={deliveryType === 'MIXED'}
-                      onChange={() => {}}
-                      className="w-4 h-4 accent-emerald-500"
-                    />
-                    <div>
-                      <div className="text-sm">🧪 น้ำยาผสมแล้ว (Mix)</div>
-                      <div className="text-[11px] font-normal text-slate-400">
-                        ตัดสต็อกรายการน้ำยาที่ผสมพร้อมใช้งาน ({mixedProducts.length} รายการ)
-                      </div>
-                    </div>
+              <form onSubmit={handleDeliverySubmit} className="space-y-5">
+                {/* 1. ติ๊กเลือกประเภทน้ำยาก่อนจัดส่ง */}
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5">
+                  <label className="block text-xs md:text-sm text-slate-400 font-medium">
+                    1. เลือกประเภทน้ำยาที่ต้องการจัดส่ง *
                   </label>
-
-                  <label
-                    onClick={() => {
-                      setDeliveryType('CONCENTRATE');
-                      setDeliveryProductId('');
-                    }}
-                    className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
-                      deliveryType === 'CONCENTRATE'
-                        ? 'bg-amber-600/20 border-amber-500 text-white font-bold'
-                        : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="deliveryType"
-                      checked={deliveryType === 'CONCENTRATE'}
-                      onChange={() => {}}
-                      className="w-4 h-4 accent-amber-500"
-                    />
-                    <div>
-                      <div className="text-sm">💧 หัวเชื้อน้ำยา (Pure)</div>
-                      <div className="text-[11px] font-normal text-slate-400">
-                        ตัดสต็อกแกลลอนหัวเชื้อโดยตรง ({concentrateProducts.length} รายการ)
-                      </div>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {/* 2. เลือกรายการน้ำยา & จำนวน */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
-                    2. เลือก{deliveryType === 'MIXED' ? 'น้ำยาผสมแล้ว' : 'หัวเชื้อน้ำยา'} *
-                  </label>
-                  <select
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
-                    value={deliveryProductId}
-                    onChange={(e) => setDeliveryProductId(Number(e.target.value))}
-                  >
-                    <option value="" disabled>
-                      -- เลือก{deliveryType === 'MIXED' ? 'น้ำยาผสมแล้ว' : 'หัวเชื้อ'}สำหรับจัดส่ง --
-                    </option>
-                    {currentDeliveryOptions.map((p) => (
-                      <option key={p.productId} value={p.productId}>
-                        #{p.productId} {p.productName}{' '}
-                        {p.productModelCode ? `[${p.productModelCode}]` : ''} — คงเหลือ:{' '}
-                        {p.stockQty ?? 0} {p.unitName || 'ถัง'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
-                    3. จำนวนที่จัดส่ง *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 font-bold"
-                    value={deliveryQty}
-                    onChange={(e) => setDeliveryQty(Number(e.target.value))}
-                  />
-                </div>
-              </div>
-
-              {/* 3. เลือกร้านค้าลูกค้า (แบบค้นหาได้) & เลขที่ใบส่งของ */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
-                <div ref={customerDropdownRef} className="relative">
-                  <label className="block text-xs md:text-sm text-blue-400 mb-2 font-semibold flex items-center gap-1.5">
-                    <UserCheck size={16} /> 4. เลือกร้านค้า / ลูกค้าผู้รับน้ำยา (เรียงตามรหัสลูกค้า) * ({customers.length} รายการ)
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomerDropdownOpen((prev) => !prev)}
-                    className={`w-full bg-slate-950 border rounded-xl p-3 text-left text-sm flex items-center justify-between transition ${
-                      isCustomerDropdownOpen
-                        ? 'border-blue-500 ring-1 ring-blue-500/40'
-                        : 'border-slate-700 hover:border-slate-600'
-                    }`}
-                  >
-                    {selectedCustomerObj ? (
-                      <div className="flex items-center gap-2 truncate pr-2">
-                        <span className="px-2 py-0.5 bg-blue-950 text-blue-400 border border-blue-800/60 rounded text-xs font-bold font-mono shrink-0">
-                          #{selectedCustomerObj.customer_id}
-                        </span>
-                        <span className="text-white font-semibold truncate">
-                          {selectedCustomerObj.customer_name}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-slate-300">-- ค้นหาและเลือกลูกค้า --</span>
-                    )}
-                    <ChevronDown
-                      size={18}
-                      className={`text-slate-400 shrink-0 transition-transform ${
-                        isCustomerDropdownOpen ? 'rotate-180' : ''
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label
+                      onClick={() => {
+                        setDeliveryType('MIXED');
+                        setDeliveryProductId('');
+                      }}
+                      className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                        deliveryType === 'MIXED'
+                          ? 'bg-emerald-600/20 border-emerald-500 text-white font-bold'
+                          : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
                       }`}
-                    />
-                  </button>
-
-                  {isCustomerDropdownOpen && (
-                    <div className="mt-2 bg-slate-950 border border-slate-700 rounded-xl p-3 shadow-2xl space-y-2.5 z-30">
-                      <div className="relative">
-                        <Search
-                          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                          size={15}
-                        />
-                        <input
-                          type="text"
-                          autoFocus
-                          placeholder="ค้นหารหัส, ชื่อร้าน, บริษัท, ชื่อผู้ติดต่อ, เบอร์โทร..."
-                          className="w-full bg-slate-900 border border-blue-500/70 rounded-lg pl-9 pr-8 py-2.5 text-xs md:text-sm text-white placeholder-slate-400 outline-none focus:border-blue-400"
-                          value={customerSearchTerm}
-                          onChange={(e) => setCustomerSearchTerm(e.target.value)}
-                        />
-                        {customerSearchTerm && (
-                          <button
-                            type="button"
-                            onClick={() => setCustomerSearchTerm('')}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-                          >
-                            <X size={14} />
-                          </button>
-                        )}
+                    >
+                      <input
+                        type="radio"
+                        name="deliveryType"
+                        checked={deliveryType === 'MIXED'}
+                        onChange={() => {}}
+                        className="w-4 h-4 accent-emerald-500"
+                      />
+                      <div>
+                        <div className="text-sm">🧪 น้ำยาผสมแล้ว (Mix)</div>
+                        <div className="text-[11px] font-normal text-slate-400">
+                          ตัดสต็อกรายการน้ำยาที่ผสมพร้อมใช้งาน ({mixedProducts.length} รายการ)
+                        </div>
                       </div>
+                    </label>
 
-                      <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
-                        {filteredCustomers.length === 0 ? (
-                          <div className="py-6 text-center text-xs text-slate-400">
-                            {loading ? 'กำลังโหลดรายชื่อลูกค้า...' : 'ไม่พบข้อมูลลูกค้าที่ค้นหา'}
-                          </div>
-                        ) : (
-                          filteredCustomers.map((c) => {
-                            const isSelected = c.customer_id === Number(selectedCustomerId);
-                            return (
-                              <div
-                                key={c.customer_id}
-                                onClick={() => {
-                                  setSelectedCustomerId(c.customer_id);
-                                  setIsCustomerDropdownOpen(false);
-                                }}
-                                className={`p-3 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
-                                  isSelected
-                                    ? 'bg-blue-950/50 border-blue-500/70'
-                                    : 'bg-slate-900/70 hover:bg-slate-900 border-slate-800/80 hover:border-slate-700'
-                                }`}
-                              >
-                                <span className="px-2 py-0.5 bg-blue-950 text-blue-400 border border-blue-800/60 rounded text-xs font-bold font-mono shrink-0 mt-0.5">
-                                  #{c.customer_id}
-                                </span>
+                    <label
+                      onClick={() => {
+                        setDeliveryType('CONCENTRATE');
+                        setDeliveryProductId('');
+                      }}
+                      className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                        deliveryType === 'CONCENTRATE'
+                          ? 'bg-amber-600/20 border-amber-500 text-white font-bold'
+                          : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="deliveryType"
+                        checked={deliveryType === 'CONCENTRATE'}
+                        onChange={() => {}}
+                        className="w-4 h-4 accent-amber-500"
+                      />
+                      <div>
+                        <div className="text-sm">💧 หัวเชื้อน้ำยา (Pure)</div>
+                        <div className="text-[11px] font-normal text-slate-400">
+                          ตัดสต็อกแกลลอนหัวเชื้อโดยตรง ({concentrateProducts.length} รายการ)
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
 
-                                <div className="min-w-0 flex-1 space-y-1">
-                                  <div className="text-sm font-bold text-white truncate">
-                                    {c.customer_name}
-                                  </div>
+                {/* 2. เลือกรายการน้ำยา & จำนวน */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                      2. เลือก{deliveryType === 'MIXED' ? 'น้ำยาผสมแล้ว' : 'หัวเชื้อน้ำยา'} *
+                    </label>
+                    <select
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
+                      value={deliveryProductId}
+                      onChange={(e) => setDeliveryProductId(Number(e.target.value))}
+                    >
+                      <option value="" disabled>
+                        -- เลือก{deliveryType === 'MIXED' ? 'น้ำยาผสมแล้ว' : 'หัวเชื้อ'}สำหรับจัดส่ง --
+                      </option>
+                      {currentDeliveryOptions.map((p) => (
+                        <option key={p.productId} value={p.productId}>
+                          #{p.productId} {p.productName}{' '}
+                          {p.productModelCode ? `[${p.productModelCode}]` : ''} — คงเหลือ:{' '}
+                          {p.stockQty ?? 0} {p.unitName || 'ถัง'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-                                    {c.customer_taxname && (
-                                      <span className="text-amber-400 flex items-center gap-1 truncate max-w-full">
-                                        <Building2 size={12} className="shrink-0" />
-                                        บจก/บริษัท: {c.customer_taxname}
-                                      </span>
-                                    )}
-                                    {c.customer_contact_name && (
-                                      <span className="text-indigo-300 flex items-center gap-1">
-                                        <User size={12} className="shrink-0" />
-                                        คอนแท็ก: {c.customer_contact_name}
-                                      </span>
-                                    )}
-                                    {c.customer_number && (
-                                      <span className="text-emerald-400 flex items-center gap-1 font-mono">
-                                        <Phone size={12} className="shrink-0" />
-                                        {c.customer_number}
-                                      </span>
-                                    )}
+                  <div>
+                    <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                      3. จำนวนที่จัดส่ง *
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 font-bold"
+                      value={deliveryQty}
+                      onChange={(e) => setDeliveryQty(Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+
+                {/* 3. เลือกร้านค้าลูกค้า (แบบค้นหาได้) & เลขที่ใบส่งของ */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+                  <div ref={customerDropdownRef} className="relative">
+                    <label className="block text-xs md:text-sm text-blue-400 mb-2 font-semibold flex items-center gap-1.5">
+                      <UserCheck size={16} /> 4. เลือกร้านค้า / ลูกค้าผู้รับน้ำยา (เรียงตามรหัสลูกค้า) * ({customers.length} รายการ)
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomerDropdownOpen((prev) => !prev)}
+                      className={`w-full bg-slate-950 border rounded-xl p-3 text-left text-sm flex items-center justify-between transition ${
+                        isCustomerDropdownOpen
+                          ? 'border-blue-500 ring-1 ring-blue-500/40'
+                          : 'border-slate-700 hover:border-slate-600'
+                      }`}
+                    >
+                      {selectedCustomerObj ? (
+                        <div className="flex items-center gap-2 truncate pr-2">
+                          <span className="px-2 py-0.5 bg-blue-950 text-blue-400 border border-blue-800/60 rounded text-xs font-bold font-mono shrink-0">
+                            #{selectedCustomerObj.customer_id}
+                          </span>
+                          <span className="text-white font-semibold truncate">
+                            {selectedCustomerObj.customer_name}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-300">-- ค้นหาและเลือกลูกค้า --</span>
+                      )}
+                      <ChevronDown
+                        size={18}
+                        className={`text-slate-400 shrink-0 transition-transform ${
+                          isCustomerDropdownOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+
+                    {isCustomerDropdownOpen && (
+                      <div className="mt-2 bg-slate-950 border border-slate-700 rounded-xl p-3 shadow-2xl space-y-2.5 z-30">
+                        <div className="relative">
+                          <Search
+                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                            size={15}
+                          />
+                          <input
+                            type="text"
+                            autoFocus
+                            placeholder="ค้นหารหัส, ชื่อร้าน, บริษัท, ชื่อผู้ติดต่อ, เบอร์โทร..."
+                            className="w-full bg-slate-900 border border-blue-500/70 rounded-lg pl-9 pr-8 py-2.5 text-xs md:text-sm text-white placeholder-slate-400 outline-none focus:border-blue-400"
+                            value={customerSearchTerm}
+                            onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                          />
+                          {customerSearchTerm && (
+                            <button
+                              type="button"
+                              onClick={() => setCustomerSearchTerm('')}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
+                          {filteredCustomers.length === 0 ? (
+                            <div className="py-6 text-center text-xs text-slate-400">
+                              {loading ? 'กำลังโหลดรายชื่อลูกค้า...' : 'ไม่พบข้อมูลลูกค้าที่ค้นหา'}
+                            </div>
+                          ) : (
+                            filteredCustomers.map((c) => {
+                              const isSelected = c.customer_id === Number(selectedCustomerId);
+                              return (
+                                <div
+                                  key={c.customer_id}
+                                  onClick={() => {
+                                    setSelectedCustomerId(c.customer_id);
+                                    setIsCustomerDropdownOpen(false);
+                                  }}
+                                  className={`p-3 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
+                                    isSelected
+                                      ? 'bg-blue-950/50 border-blue-500/70'
+                                      : 'bg-slate-900/70 hover:bg-slate-900 border-slate-800/80 hover:border-slate-700'
+                                  }`}
+                                >
+                                  <span className="px-2 py-0.5 bg-blue-950 text-blue-400 border border-blue-800/60 rounded text-xs font-bold font-mono shrink-0 mt-0.5">
+                                    #{c.customer_id}
+                                  </span>
+
+                                  <div className="min-w-0 flex-1 space-y-1">
+                                    <div className="text-sm font-bold text-white truncate">
+                                      {c.customer_name}
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                                      {c.customer_taxname && (
+                                        <span className="text-amber-400 flex items-center gap-1 truncate max-w-full">
+                                          <Building2 size={12} className="shrink-0" />
+                                          บจก/บริษัท: {c.customer_taxname}
+                                        </span>
+                                      )}
+                                      {c.customer_contact_name && (
+                                        <span className="text-indigo-300 flex items-center gap-1">
+                                          <User size={12} className="shrink-0" />
+                                          คอนแท็ก: {c.customer_contact_name}
+                                        </span>
+                                      )}
+                                      {c.customer_number && (
+                                        <span className="text-emerald-400 flex items-center gap-1 font-mono">
+                                          <Phone size={12} className="shrink-0" />
+                                          {c.customer_number}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            );
-                          })
-                        )}
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
+                      5. เลขที่ใบส่งของ (Delivery No.)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="เช่น DO-2026-001 (ปล่อยว่างเพื่อสร้างอัตโนมัติ)"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 font-mono"
+                      value={deliveryRef}
+                      onChange={(e) => setDeliveryRef(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* 4. พนักงานผู้ส่ง (รองรับคนนอก) & เหตุผลการจัดส่ง (Order Reason) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+                  <div className="space-y-2.5">
+                    <label className="block text-xs md:text-sm text-emerald-400 font-semibold flex items-center gap-1.5">
+                      <UserCheck size={16} /> 6. รายชื่อพนักงานผู้ส่ง / ผู้รับผิดชอบ *
+                    </label>
+                    <select
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
+                      value={deliveryEmployeeId}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setDeliveryEmployeeId(val);
+                        if (val !== 'EXTERNAL') {
+                          setExternalSenderName('');
+                        }
+                      }}
+                      required
+                    >
+                      <option value="" disabled>
+                        -- กรุณาเลือกพนักงานผู้ส่งจากรายชื่อ --
+                      </option>
+                      {employees.map((empItem: any, idx: number) => {
+                        const empId = String(getEmpId(empItem, idx));
+                        const empLabel = getEmpDisplayName(empItem, empId);
+                        return (
+                          <option key={empId} value={empId}>
+                            #{empId} {empLabel}
+                          </option>
+                        );
+                      })}
+                      <option value="EXTERNAL">
+                        🚚 คนนอก / ผู้ส่งอิสระ (พิมพ์ระบุชื่อเอง)
+                      </option>
+                    </select>
+
+                    {deliveryEmployeeId === 'EXTERNAL' && (
+                      <input
+                        type="text"
+                        autoFocus
+                        placeholder="พิมพ์ระบุชื่อคนนอก / เบอร์โทร / ทะเบียนรถ..."
+                        className="w-full bg-slate-950 border border-amber-500/70 rounded-xl p-3 text-white text-sm outline-none focus:border-amber-400"
+                        value={externalSenderName}
+                        onChange={(e) => setExternalSenderName(e.target.value)}
+                        required
+                      />
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs md:text-sm text-slate-300 mb-2 font-semibold">
+                      7. เหตุผลการจัดส่ง (Order Reason) *
+                    </label>
+                    <select
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
+                      value={orderReason}
+                      onChange={(e) => setOrderReason(e.target.value)}
+                    >
+                      <option value="ส่งตามรอบปกติ (Standard Delivery)">
+                        ส่งตามรอบปกติ (Standard Delivery)
+                      </option>
+                      <option value="ลูกค้าสั่งด่วนนอกรอบ (Urgent Order)">
+                        ลูกค้าสั่งด่วนนอกรอบ (Urgent Order)
+                      </option>
+                      <option value="ส่งตามหลัง (ช่างลืมส่งตอน PM)">
+                        ⚠️ ส่งตามหลัง (ช่างลืมส่งตอน PM)
+                      </option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 5. เลือกช่องทางจัดส่ง (3 Delivery Channels) */}
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 space-y-3">
+                  <label className="block text-xs md:text-sm text-indigo-400 font-bold flex items-center gap-2">
+                    <Truck size={18} /> 8. เลือกช่องทางจัดส่ง (3 Delivery Channels) *
+                  </label>
+
+                  <div className="space-y-2.5">
+                    {/* ช่องทางที่ 1 */}
+                    <label
+                      onClick={() => setDeliveryChannel('PM_ROUND')}
+                      className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                        deliveryChannel === 'PM_ROUND'
+                          ? 'bg-emerald-600/15 border-emerald-500 text-white'
+                          : 'bg-slate-900/70 border-slate-800 text-slate-300 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="radio"
+                          name="deliveryChannel"
+                          checked={deliveryChannel === 'PM_ROUND'}
+                          onChange={() => {}}
+                          className="w-4 h-4 mt-1 accent-emerald-500"
+                        />
+                        <div>
+                          <div className="text-sm font-bold text-white">1. ฝากส่งพร้อมรอบ PM</div>
+                          <div className="text-xs text-slate-400 mt-0.5">
+                            ช่างหยิบติดรถไปให้ตอนเข้าเช็คระยะล้างเครื่องตามรอบสัญญา
+                          </div>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 bg-slate-800 text-slate-300 border border-slate-700 rounded-lg text-[11px] font-bold shrink-0">
+                        ฟรีค่าส่ง
+                      </span>
+                    </label>
+
+                    {/* ช่องทางที่ 2 */}
+                    <label
+                      onClick={() => setDeliveryChannel('DIRECT_TECH')}
+                      className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                        deliveryChannel === 'DIRECT_TECH'
+                          ? 'bg-emerald-600/15 border-emerald-500 text-white'
+                          : 'bg-slate-900/70 border-slate-800 text-slate-300 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="radio"
+                          name="deliveryChannel"
+                          checked={deliveryChannel === 'DIRECT_TECH'}
+                          onChange={() => {}}
+                          className="w-4 h-4 mt-1 accent-emerald-500"
+                        />
+                        <div>
+                          <div className="text-sm font-bold text-white">2. ช่างวิ่งส่งด่วน (Direct Tech)</div>
+                          <div className="text-xs text-slate-400 mt-0.5">
+                            ระยะใกล้/ทางผ่าน - ช่างถ่ายรูปส่งงานคู่กับหน้างานส่งลงกลุ่ม LINE
+                          </div>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg text-[11px] font-bold shrink-0">
+                        ส่งด่วน
+                      </span>
+                    </label>
+
+                    {/* ช่องทางที่ 3 */}
+                    <label
+                      onClick={() => setDeliveryChannel('EXPRESS')}
+                      className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                        deliveryChannel === 'EXPRESS'
+                          ? 'bg-indigo-600/15 border-indigo-500 text-white'
+                          : 'bg-slate-900/70 border-slate-800 text-slate-300 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="radio"
+                          name="deliveryChannel"
+                          checked={deliveryChannel === 'EXPRESS'}
+                          onChange={() => {}}
+                          className="w-4 h-4 mt-1 accent-indigo-500"
+                        />
+                        <div>
+                          <div className="text-sm font-bold text-white">3. ขนส่งเอกชน (Express Courier)</div>
+                          <div className="text-xs text-slate-400 mt-0.5">
+                            ส่งระยะไกลผ่าน Flash / Kerry / ไปรษณีย์ไทย
+                          </div>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-lg text-[11px] font-bold shrink-0">
+                        มีค่าขนส่ง
+                      </span>
+                    </label>
+                  </div>
+
+                  {/* กล่องกรอกรายละเอียดเมื่อเลือก ขนส่งเอกชน (Express Courier) */}
+                  {deliveryChannel === 'EXPRESS' && (
+                    <div className="mt-3 bg-slate-900 border border-indigo-500/30 rounded-xl p-4 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs text-slate-400 mb-1.5 font-medium">
+                            บริษัทขนส่ง
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="เช่น Flash Express, Kerry, ไปรษณีย์ไทย"
+                            className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white text-sm outline-none focus:border-indigo-500"
+                            value={courierName}
+                            onChange={(e) => setCourierName(e.target.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-slate-400 mb-1.5 font-medium">
+                            เลข Tracking
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="เช่น TH2026998877"
+                            className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white text-sm outline-none focus:border-indigo-500 font-mono"
+                            value={trackingNo}
+                            onChange={(e) => setTrackingNo(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1.5 font-medium">
+                          ค่าจัดส่งจริง (บาท)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="0"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white text-sm outline-none focus:border-indigo-500 font-bold"
+                          value={shippingCost}
+                          onChange={(e) => setShippingCost(e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-2 font-medium">
+                          ผู้รับผิดชอบค่าจัดส่ง (Shipping Cost Assignment)
+                        </label>
+                        <div className="flex flex-wrap items-center gap-5">
+                          <label className="flex items-center gap-2 cursor-pointer text-xs md:text-sm">
+                            <input
+                              type="radio"
+                              name="shippingPayer"
+                              checked={shippingPayer === 'COMPANY'}
+                              onChange={() => setShippingPayer('COMPANY')}
+                              className="w-4 h-4 accent-rose-500"
+                            />
+                            <span className={shippingPayer === 'COMPANY' ? 'text-rose-400 font-bold' : 'text-slate-300'}>
+                              บริษัทรับผิดชอบ (Company Paid)
+                            </span>
+                          </label>
+
+                          <label className="flex items-center gap-2 cursor-pointer text-xs md:text-sm">
+                            <input
+                              type="radio"
+                              name="shippingPayer"
+                              checked={shippingPayer === 'CUSTOMER'}
+                              onChange={() => setShippingPayer('CUSTOMER')}
+                              className="w-4 h-4 accent-emerald-500"
+                            />
+                            <span className={shippingPayer === 'CUSTOMER' ? 'text-emerald-400 font-bold' : 'text-slate-300'}>
+                              เรียกเก็บจากลูกค้า
+                            </span>
+                          </label>
+                        </div>
                       </div>
                     </div>
                   )}
                 </div>
 
+                {/* 6. หมายเหตุการจัดส่ง */}
                 <div>
                   <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
-                    5. เลขที่ใบส่งของ (Delivery No.)
+                    9. หมายเหตุการจัดส่ง
                   </label>
                   <input
                     type="text"
-                    placeholder="เช่น DO-2026-001 (ปล่อยว่างเพื่อสร้างอัตโนมัติ)"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 font-mono"
-                    value={deliveryRef}
-                    onChange={(e) => setDeliveryRef(e.target.value)}
+                    placeholder="เช่น จัดส่งรอบประจำสัปดาห์..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500"
+                    value={deliveryRemark}
+                    onChange={(e) => setDeliveryRemark(e.target.value)}
                   />
                 </div>
-              </div>
 
-              {/* 4. พนักงานผู้ส่ง (รองรับคนนอก) & เหตุผลการจัดส่ง (Order Reason) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
-                <div className="space-y-2.5">
-                  <label className="block text-xs md:text-sm text-emerald-400 font-semibold flex items-center gap-1.5">
-                    <UserCheck size={16} /> 6. รายชื่อพนักงานผู้ส่ง / ผู้รับผิดชอบ *
+                {/* 7. ถ่ายรูป / แนบหลักฐานการจัดส่ง */}
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+                  <label className="block text-xs md:text-sm text-slate-300 font-bold flex items-center gap-2">
+                    <Camera className="text-emerald-400" size={18} /> 10. ถ่ายรูปหลักฐานการจัดส่ง (ไม่บังคับ)
                   </label>
-                  <select
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
-                    value={deliveryEmployeeId}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setDeliveryEmployeeId(val);
-                      if (val !== 'EXTERNAL') {
-                        setExternalSenderName('');
-                      }
-                    }}
-                    required
-                  >
-                    <option value="" disabled>
-                      -- กรุณาเลือกพนักงานผู้ส่งจากรายชื่อ --
-                    </option>
-                    {employees.map((empItem: any, idx: number) => {
-                      const empId = String(getEmpId(empItem, idx));
-                      const empLabel = getEmpDisplayName(empItem, empId);
-                      return (
-                        <option key={empId} value={empId}>
-                          #{empId} {empLabel}
-                        </option>
-                      );
-                    })}
-                    <option value="EXTERNAL">
-                      🚚 คนนอก / ผู้ส่งอิสระ (พิมพ์ระบุชื่อเอง)
-                    </option>
-                  </select>
 
-                  {deliveryEmployeeId === 'EXTERNAL' && (
-                    <input
-                      type="text"
-                      autoFocus
-                      placeholder="พิมพ์ระบุชื่อคนนอก / เบอร์โทร / ทะเบียนรถ..."
-                      className="w-full bg-slate-950 border border-amber-500/70 rounded-xl p-3 text-white text-sm outline-none focus:border-amber-400"
-                      value={externalSenderName}
-                      onChange={(e) => setExternalSenderName(e.target.value)}
-                      required
-                    />
+                  {!photoPreview ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl cursor-pointer transition text-sm font-bold">
+                        <Camera size={18} /> ถ่ายรูปทันที (เปิดกล้อง)
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          onChange={handlePhotoChange}
+                        />
+                      </label>
+
+                      <label className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl cursor-pointer transition text-sm font-medium">
+                        <ImageIcon size={18} /> เลือกรูปจากเครื่อง
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handlePhotoChange}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="relative inline-block">
+                      <img
+                        src={photoPreview}
+                        alt="ตัวอย่างรูปหลักฐานจัดส่ง"
+                        className="max-h-56 rounded-xl border border-emerald-500/40 object-cover shadow-lg"
+                      />
+                      <button
+                        type="button"
+                        onClick={clearPhoto}
+                        className="absolute -top-2.5 -right-2.5 p-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-full shadow-md transition"
+                        title="ลบรูปภาพ"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
                   )}
                 </div>
 
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-sm transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
+                >
+                  {isSubmitting ? (
+                    'กำลังอัปโหลดและบันทึกข้อมูล...'
+                  ) : (
+                    <>
+                      <CheckCircle2 size={18} /> ยืนยันเปิดบิลจัดส่ง & ตัดสต็อก FIFO
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+
+            {/* สรุปสถิติการจัดส่งน้ำยาให้ลูกค้า (เฉพาะ Sub-tab B) */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-800 pb-4">
                 <div>
-                  <label className="block text-xs md:text-sm text-slate-300 mb-2 font-semibold">
-                    7. เหตุผลการจัดส่ง (Order Reason) *
-                  </label>
-                  <select
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
-                    value={orderReason}
-                    onChange={(e) => setOrderReason(e.target.value)}
+                  <h3 className="font-bold text-base text-white flex items-center gap-2">
+                    <BarChart3 className="text-emerald-400" size={20} /> สรุปสถิติการเบิกน้ำยา & ช่องทางการจัดส่งลูกค้า
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    วิเคราะห์ยอดส่งออกทั้งหมด {deliveryAnalytics.totalOutQty} ถัง/แกลลอน จาก {deliveryAnalytics.totalBills} บิลจัดส่ง
+                  </p>
+                </div>
+
+                {/* ปุ่มเลือกช่วงเวลา */}
+                <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setAnalyticsPeriod('THIS_MONTH')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      analyticsPeriod === 'THIS_MONTH'
+                        ? 'bg-emerald-600 text-white'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
                   >
-                    <option value="ส่งตามรอบปกติ (Standard Delivery)">
-                      ส่งตามรอบปกติ (Standard Delivery)
-                    </option>
-                    <option value="ลูกค้าสั่งด่วนนอกรอบ (Urgent Order)">
-                      ลูกค้าสั่งด่วนนอกรอบ (Urgent Order)
-                    </option>
-                    <option value="ส่งตามหลัง (ช่างลืมส่งตอน PM)">
-                      ⚠️ ส่งตามหลัง (ช่างลืมส่งตอน PM)
-                    </option>
-                  </select>
+                    เดือนนี้
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAnalyticsPeriod('THIS_YEAR')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      analyticsPeriod === 'THIS_YEAR'
+                        ? 'bg-emerald-600 text-white'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    ปีนี้
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAnalyticsPeriod('ALL')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      analyticsPeriod === 'ALL'
+                        ? 'bg-emerald-600 text-white'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    ทั้งหมด
+                  </button>
                 </div>
               </div>
 
-              {/* 5. เลือกช่องทางจัดส่ง (3 Delivery Channels) */}
-              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 space-y-3">
-                <label className="block text-xs md:text-sm text-indigo-400 font-bold flex items-center gap-2">
-                  <Truck size={18} /> 8. เลือกช่องทางจัดส่ง (3 Delivery Channels) *
-                </label>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* ฝั่งซ้าย: Top 5 ร้านที่เบิกน้ำยามากที่สุด */}
+                <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-5 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                      <Trophy className="text-amber-400" size={18} /> Top 5 ร้านค้าที่เบิกน้ำยามากที่สุด
+                    </h4>
+                  </div>
 
-                <div className="space-y-2.5">
-                  {/* ช่องทางที่ 1 */}
-                  <label
-                    onClick={() => setDeliveryChannel('PM_ROUND')}
-                    className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
-                      deliveryChannel === 'PM_ROUND'
-                        ? 'bg-emerald-600/15 border-emerald-500 text-white'
-                        : 'bg-slate-900/70 border-slate-800 text-slate-300 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="radio"
-                        name="deliveryChannel"
-                        checked={deliveryChannel === 'PM_ROUND'}
-                        onChange={() => {}}
-                        className="w-4 h-4 mt-1 accent-emerald-500"
-                      />
-                      <div>
-                        <div className="text-sm font-bold text-white">1. ฝากส่งพร้อมรอบ PM</div>
-                        <div className="text-xs text-slate-400 mt-0.5">
-                          ช่างหยิบติดรถไปให้ตอนเข้าเช็คระยะล้างเครื่องตามรอบสัญญา
-                        </div>
-                      </div>
+                  {deliveryAnalytics.topCustomers.length === 0 ? (
+                    <div className="py-10 text-center text-slate-500 text-xs">
+                      ยังไม่มีประวัติการจัดส่งในช่วงเวลานี้
                     </div>
-                    <span className="px-2.5 py-1 bg-slate-800 text-slate-300 border border-slate-700 rounded-lg text-[11px] font-bold shrink-0">
-                      ฟรีค่าส่ง
-                    </span>
-                  </label>
+                  ) : (
+                    <div className="space-y-3">
+                      {deliveryAnalytics.topCustomers.map((cust, idx) => {
+                        const percent =
+                          deliveryAnalytics.totalOutQty > 0
+                            ? Math.round((cust.totalQty / deliveryAnalytics.totalOutQty) * 100)
+                            : 0;
+                        return (
+                          <div
+                            key={cust.name}
+                            className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-xl space-y-2"
+                          >
+                            <div className="flex justify-between items-center gap-2">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span
+                                  className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black shrink-0 ${
+                                    idx === 0
+                                      ? 'bg-amber-500 text-slate-950'
+                                      : idx === 1
+                                      ? 'bg-slate-300 text-slate-900'
+                                      : idx === 2
+                                      ? 'bg-amber-700 text-white'
+                                      : 'bg-slate-800 text-slate-400'
+                                  }`}
+                                >
+                                  {idx + 1}
+                                </span>
+                                <div className="min-w-0">
+                                  <div className="text-sm font-bold text-white truncate" title={cust.name}>
+                                    {cust.name}
+                                  </div>
+                                  <div className="text-[11px] text-slate-400">
+                                    จัดส่ง {cust.deliveryCount} ครั้ง
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <span className="text-base font-black text-emerald-400 font-mono">
+                                  {cust.totalQty}
+                                </span>
+                                <span className="text-xs text-slate-400 ml-1">ถัง ({percent}%)</span>
+                              </div>
+                            </div>
 
-                  {/* ช่องทางที่ 2 */}
-                  <label
-                    onClick={() => setDeliveryChannel('DIRECT_TECH')}
-                    className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
-                      deliveryChannel === 'DIRECT_TECH'
-                        ? 'bg-emerald-600/15 border-emerald-500 text-white'
-                        : 'bg-slate-900/70 border-slate-800 text-slate-300 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="radio"
-                        name="deliveryChannel"
-                        checked={deliveryChannel === 'DIRECT_TECH'}
-                        onChange={() => {}}
-                        className="w-4 h-4 mt-1 accent-emerald-500"
-                      />
-                      <div>
-                        <div className="text-sm font-bold text-white">2. ช่างวิ่งส่งด่วน (Direct Tech)</div>
-                        <div className="text-xs text-slate-400 mt-0.5">
-                          ระยะใกล้/ทางผ่าน - ช่างถ่ายรูปส่งงานคู่กับหน้างานส่งลงกลุ่ม LINE
-                        </div>
-                      </div>
-                    </div>
-                    <span className="px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg text-[11px] font-bold shrink-0">
-                      ส่งด่วน
-                    </span>
-                  </label>
+                            <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                              <div
+                                className="bg-emerald-500 h-full rounded-full transition-all"
+                                style={{ width: `${percent}%` }}
+                              />
+                            </div>
 
-                  {/* ช่องทางที่ 3 */}
-                  <label
-                    onClick={() => setDeliveryChannel('EXPRESS')}
-                    className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
-                      deliveryChannel === 'EXPRESS'
-                        ? 'bg-indigo-600/15 border-indigo-500 text-white'
-                        : 'bg-slate-900/70 border-slate-800 text-slate-300 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="radio"
-                        name="deliveryChannel"
-                        checked={deliveryChannel === 'EXPRESS'}
-                        onChange={() => {}}
-                        className="w-4 h-4 mt-1 accent-indigo-500"
-                      />
-                      <div>
-                        <div className="text-sm font-bold text-white">3. ขนส่งเอกชน (Express Courier)</div>
-                        <div className="text-xs text-slate-400 mt-0.5">
-                          ส่งระยะไกลผ่าน Flash / Kerry / ไปรษณีย์ไทย
-                        </div>
-                      </div>
+                            <div className="flex flex-wrap gap-1.5 pt-0.5">
+                              {Object.entries(cust.items).map(([pName, q]) => (
+                                <span
+                                  key={pName}
+                                  className="text-[10px] px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-300"
+                                >
+                                  {pName.replace('(ผสม)', '')}:{' '}
+                                  <strong className="text-amber-300 font-mono">{q}</strong>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <span className="px-2.5 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-lg text-[11px] font-bold shrink-0">
-                      มีค่าขนส่ง
-                    </span>
-                  </label>
+                  )}
                 </div>
 
-                {/* กล่องกรอกรายละเอียดเมื่อเลือก ขนส่งเอกชน (Express Courier) */}
-                {deliveryChannel === 'EXPRESS' && (
-                  <div className="mt-3 bg-slate-900 border border-indigo-500/30 rounded-xl p-4 space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs text-slate-400 mb-1.5 font-medium">
-                          บริษัทขนส่ง
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="เช่น Flash Express, Kerry, ไปรษณีย์ไทย"
-                          className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white text-sm outline-none focus:border-indigo-500"
-                          value={courierName}
-                          onChange={(e) => setCourierName(e.target.value)}
-                        />
+                {/* ฝั่งขวา: แยกตามช่องทางการจัดส่ง & เหตุผล */}
+                <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-5 flex flex-col justify-between space-y-5">
+                  <div className="space-y-4">
+                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                      <Truck className="text-indigo-400" size={18} /> แยกสัดส่วนตามช่องทางการจัดส่ง
+                    </h4>
+
+                    {deliveryAnalytics.deliveryChannels.length === 0 ? (
+                      <div className="py-10 text-center text-slate-500 text-xs">
+                        ยังไม่มีข้อมูลช่องทางการจัดส่งในช่วงเวลานี้
                       </div>
-
-                      <div>
-                        <label className="block text-xs text-slate-400 mb-1.5 font-medium">
-                          เลข Tracking
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="เช่น TH2026998877"
-                          className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white text-sm outline-none focus:border-indigo-500 font-mono"
-                          value={trackingNo}
-                          onChange={(e) => setTrackingNo(e.target.value)}
-                        />
+                    ) : (
+                      <div className="space-y-3">
+                        {deliveryAnalytics.deliveryChannels.map((ch) => {
+                          const percent =
+                            deliveryAnalytics.totalOutQty > 0
+                              ? Math.round((ch.totalQty / deliveryAnalytics.totalOutQty) * 100)
+                              : 0;
+                          return (
+                            <div
+                              key={ch.channel}
+                              className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-xl space-y-2"
+                            >
+                              <div className="flex justify-between items-center text-xs md:text-sm gap-2">
+                                <span className="font-semibold text-slate-200">{ch.channel}</span>
+                                <div className="font-mono text-xs shrink-0">
+                                  <span className="text-indigo-400 font-bold text-sm">{ch.totalQty} ถัง</span>
+                                  <span className="text-slate-500 ml-1.5">
+                                    ({ch.count} บิล • {percent}%)
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                                <div
+                                  className="bg-indigo-500 h-full rounded-full transition-all"
+                                  style={{ width: `${percent}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    </div>
+                    )}
 
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1.5 font-medium">
-                        ค่าจัดส่งจริง (บาท)
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        placeholder="0"
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white text-sm outline-none focus:border-indigo-500 font-bold"
-                        value={shippingCost}
-                        onChange={(e) => setShippingCost(e.target.value)}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-2 font-medium">
-                        ผู้รับผิดชอบค่าจัดส่ง (Shipping Cost Assignment)
-                      </label>
-                      <div className="flex flex-wrap items-center gap-5">
-                        <label className="flex items-center gap-2 cursor-pointer text-xs md:text-sm">
-                          <input
-                            type="radio"
-                            name="shippingPayer"
-                            checked={shippingPayer === 'COMPANY'}
-                            onChange={() => setShippingPayer('COMPANY')}
-                            className="w-4 h-4 accent-rose-500"
-                          />
-                          <span className={shippingPayer === 'COMPANY' ? 'text-rose-400 font-bold' : 'text-slate-300'}>
-                            บริษัทรับผิดชอบ (Company Paid)
+                    {/* สรุปค่าส่งขนส่งเอกชน (ถ้ามี) */}
+                    {(deliveryAnalytics.shippingStats.companyPaid > 0 ||
+                      deliveryAnalytics.shippingStats.customerPaid > 0) && (
+                      <div className="bg-slate-900 border border-indigo-500/20 rounded-xl p-3 flex flex-wrap justify-between items-center gap-2 text-xs">
+                        <span className="text-slate-400 font-medium">ค่าขนส่งเอกชนสะสม:</span>
+                        <div className="flex items-center gap-3 font-mono">
+                          <span className="text-rose-400">
+                            บริษัทจ่าย: <strong>{deliveryAnalytics.shippingStats.companyPaid.toLocaleString()} บ.</strong>
                           </span>
-                        </label>
-
-                        <label className="flex items-center gap-2 cursor-pointer text-xs md:text-sm">
-                          <input
-                            type="radio"
-                            name="shippingPayer"
-                            checked={shippingPayer === 'CUSTOMER'}
-                            onChange={() => setShippingPayer('CUSTOMER')}
-                            className="w-4 h-4 accent-emerald-500"
-                          />
-                          <span className={shippingPayer === 'CUSTOMER' ? 'text-emerald-400 font-bold' : 'text-slate-300'}>
-                            เรียกเก็บจากลูกค้า
+                          <span className="text-emerald-400">
+                            เก็บลูกค้า: <strong>{deliveryAnalytics.shippingStats.customerPaid.toLocaleString()} บ.</strong>
                           </span>
-                        </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* กล่องสรุปเหตุผลการจัดส่ง */}
+                  <div className="grid grid-cols-3 gap-2.5 pt-3 border-t border-slate-800">
+                    <div className="bg-emerald-950/30 border border-emerald-500/20 p-3 rounded-xl">
+                      <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                        <PackageCheck size={13} className="text-emerald-400 shrink-0" /> รอบปกติ
+                      </div>
+                      <div className="text-base font-black text-emerald-400 font-mono mt-1">
+                        {deliveryAnalytics.reasonStats.normal} <span className="text-[11px] font-normal">ถัง</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-rose-950/30 border border-rose-500/20 p-3 rounded-xl">
+                      <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                        <AlertCircle size={13} className="text-rose-400 shrink-0" /> ด่วนนอกรอบ
+                      </div>
+                      <div className="text-base font-black text-rose-400 font-mono mt-1">
+                        {deliveryAnalytics.reasonStats.urgent} <span className="text-[11px] font-normal">ถัง</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-amber-950/30 border border-amber-500/20 p-3 rounded-xl">
+                      <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                        <AlertTriangle size={13} className="text-amber-400 shrink-0" /> ส่งตามหลัง
+                      </div>
+                      <div className="text-base font-black text-amber-400 font-mono mt-1">
+                        {deliveryAnalytics.reasonStats.forgotPm} <span className="text-[11px] font-normal">ถัง</span>
                       </div>
                     </div>
                   </div>
-                )}
+                </div>
               </div>
-
-              {/* 6. หมายเหตุการจัดส่ง */}
-              <div>
-                <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
-                  9. หมายเหตุการจัดส่ง
-                </label>
-                <input
-                  type="text"
-                  placeholder="เช่น จัดส่งรอบประจำสัปดาห์..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500"
-                  value={deliveryRemark}
-                  onChange={(e) => setDeliveryRemark(e.target.value)}
-                />
-              </div>
-
-              {/* 7. ถ่ายรูป / แนบหลักฐานการจัดส่ง */}
-              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
-                <label className="block text-xs md:text-sm text-slate-300 font-bold flex items-center gap-2">
-                  <Camera className="text-emerald-400" size={18} /> 10. ถ่ายรูปหลักฐานการจัดส่ง (ไม่บังคับ)
-                </label>
-
-                {!photoPreview ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <label className="flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl cursor-pointer transition text-sm font-bold">
-                      <Camera size={18} /> ถ่ายรูปทันที (เปิดกล้อง)
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        className="hidden"
-                        onChange={handlePhotoChange}
-                      />
-                    </label>
-
-                    <label className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl cursor-pointer transition text-sm font-medium">
-                      <ImageIcon size={18} /> เลือกรูปจากเครื่อง
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={handlePhotoChange}
-                      />
-                    </label>
-                  </div>
-                ) : (
-                  <div className="relative inline-block">
-                    <img
-                      src={photoPreview}
-                      alt="ตัวอย่างรูปหลักฐานจัดส่ง"
-                      className="max-h-56 rounded-xl border border-emerald-500/40 object-cover shadow-lg"
-                    />
-                    <button
-                      type="button"
-                      onClick={clearPhoto}
-                      className="absolute -top-2.5 -right-2.5 p-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-full shadow-md transition"
-                      title="ลบรูปภาพ"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-sm transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
-              >
-                {isSubmitting ? (
-                  'กำลังอัปโหลดและบันทึกข้อมูล...'
-                ) : (
-                  <>
-                    <CheckCircle2 size={18} /> ยืนยันเปิดบิลจัดส่ง & ตัดสต็อก FIFO
-                  </>
-                )}
-              </button>
-            </form>
-          </div>
+            </div>
+          </>
         )}
 
         {/* Live Stock Monitor Summary */}
