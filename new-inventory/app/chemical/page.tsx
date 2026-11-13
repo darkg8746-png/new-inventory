@@ -271,7 +271,7 @@ export default function ChemicalSystemPage() {
         name: string;
         totalQty: number;
         deliveryCount: number;
-        items: Record<string, { qty: number; isMixed: boolean; cleanName: string }>;
+        items: Record<string, { qty: number; isMixed: boolean; displayName: string }>;
       }
     > = {};
     const channelMap: Record<string, { channel: string; count: number; totalQty: number }> = {};
@@ -280,8 +280,14 @@ export default function ChemicalSystemPage() {
 
     const outboundTxs = transactions.filter((tx) => {
       if (tx.transactionType !== 'OUT') return false;
-      const isDelivery =
-        (tx.remark || '').includes('[ลูกค้า:') || (tx.referenceNo || '').startsWith('DO-');
+      const remark = tx.remark || '';
+      const refNo = tx.referenceNo || '';
+
+      // ตัดรายการเบิกผสมในคลังกลางออก นับเฉพาะบิลส่งตรงให้ลูกค้า (Delivery Order)
+      const isBatch = refNo.startsWith('BATCH-') || remark.includes('เบิกผสมน้ำยาคลังกลาง');
+      if (isBatch) return false;
+
+      const isDelivery = remark.includes('[ลูกค้า:') || refNo.startsWith('DO-');
       if (!isDelivery) return false;
 
       if (analyticsPeriod !== 'ALL' && tx.transactionDate && currentPeriod) {
@@ -302,14 +308,14 @@ export default function ChemicalSystemPage() {
     outboundTxs.forEach((tx) => {
       const qty = Math.abs(Number(tx.quantity || 0));
       const remark = tx.remark || '';
-      const rawProductName = tx.product?.productName || 'ไม่ระบุน้ำยา';
+      const rawProductName = (tx.product?.productName || 'ไม่ระบุน้ำยา').trim();
       const isMixedItem = tx.product
         ? isMixedChemical(tx.product)
         : rawProductName.includes('ผสม') || remark.includes('[น้ำยาผสมแล้ว]');
 
-      // แยก key ระหว่าง ผสม กับ หัวเชื้อ ชัดเจนแม้ชื่อพื้นฐานเหมือนกัน
-      const cleanName = rawProductName.replace(/\(ผสม\)/g, '').trim();
-      const itemKey = `${isMixedItem ? 'MIX' : 'PURE'}__${cleanName}`;
+      // คงชื่อเต็ม (รวมคำว่า (ผสม) สำหรับน้ำยาผสม) และแยก key ระหว่าง ผสม กับ หัวเชื้อ
+      const displayName = rawProductName;
+      const itemKey = `${isMixedItem ? 'MIX' : 'PURE'}__${displayName}`;
 
       // 1. ดึงชื่อร้านค้า
       const custMatch = remark.match(/\[ลูกค้า:\s*([^\]]+)\]/);
@@ -352,7 +358,7 @@ export default function ChemicalSystemPage() {
         customerMap[customerName].items[itemKey] = {
           qty: 0,
           isMixed: isMixedItem,
-          cleanName,
+          displayName,
         };
       }
       customerMap[customerName].items[itemKey].qty += qty;
@@ -1570,20 +1576,26 @@ export default function ChemicalSystemPage() {
                               />
                             </div>
 
-                            {/* ป้ายแยกประเภท น้ำยาผสม vs หัวเชื้อ ชัดเจน */}
+                            {/* น้ำยาผสมคงคำว่า (ผสม) ไว้ตามเดิม ส่วนหัวเชื้อเพิ่มป้ายสีเหลือง 💧 [หัวเชื้อ] กำกับ */}
                             <div className="flex flex-wrap gap-1.5 pt-0.5">
                               {Object.entries(cust.items).map(([key, itemInfo]) => (
                                 <span
                                   key={key}
                                   className={`text-[10px] px-2 py-0.5 rounded border ${
                                     itemInfo.isMixed
-                                      ? 'bg-emerald-950/60 border-emerald-500/30 text-emerald-300'
-                                      : 'bg-amber-950/60 border-amber-500/30 text-amber-300'
+                                      ? 'bg-slate-950 border-slate-800 text-slate-300'
+                                      : 'bg-amber-950/60 border-amber-500/40 text-amber-300 font-semibold'
                                   }`}
                                 >
-                                  {itemInfo.isMixed ? '🧪 [ผสม]' : '💧 [หัวเชื้อ]'}{' '}
-                                  {itemInfo.cleanName}:{' '}
-                                  <strong className="font-mono font-bold">{itemInfo.qty}</strong>
+                                  {!itemInfo.isMixed && '💧 [หัวเชื้อ] '}
+                                  {itemInfo.displayName}:{' '}
+                                  <strong
+                                    className={`font-mono font-bold ${
+                                      itemInfo.isMixed ? 'text-emerald-400' : 'text-amber-300'
+                                    }`}
+                                  >
+                                    {itemInfo.qty}
+                                  </strong>
                                 </span>
                               ))}
                             </div>
