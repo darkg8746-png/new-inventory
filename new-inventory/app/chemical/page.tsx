@@ -19,6 +19,7 @@ import {
   ExternalLink,
   UserCheck,
   ChevronDown,
+  ChevronUp,
   Building2,
   User,
   Phone,
@@ -115,9 +116,10 @@ export default function ChemicalSystemPage() {
   const [deliveryRef, setDeliveryRef] = useState<string>('');
   const [deliveryRemark, setDeliveryRemark] = useState<string>('');
 
-  // Analytics Filter State (Sub-tab B) - เก็บเวลาปัจจุบันใน useEffect เพื่อเลี่ยง Prerender Error ใน Next.js 16
+  // Analytics Filter & Expand State (Sub-tab B)
   const [analyticsPeriod, setAnalyticsPeriod] = useState<'THIS_MONTH' | 'THIS_YEAR' | 'ALL'>('ALL');
   const [currentPeriod, setCurrentPeriod] = useState<{ month: number; year: number } | null>(null);
+  const [showAllCustomers, setShowAllCustomers] = useState<boolean>(false);
 
   useEffect(() => {
     const now = new Date();
@@ -265,7 +267,12 @@ export default function ChemicalSystemPage() {
   const deliveryAnalytics = useMemo(() => {
     const customerMap: Record<
       string,
-      { name: string; totalQty: number; deliveryCount: number; items: Record<string, number> }
+      {
+        name: string;
+        totalQty: number;
+        deliveryCount: number;
+        items: Record<string, { qty: number; isMixed: boolean; cleanName: string }>;
+      }
     > = {};
     const channelMap: Record<string, { channel: string; count: number; totalQty: number }> = {};
     const reasonStats = { normal: 0, urgent: 0, forgotPm: 0 };
@@ -295,7 +302,14 @@ export default function ChemicalSystemPage() {
     outboundTxs.forEach((tx) => {
       const qty = Math.abs(Number(tx.quantity || 0));
       const remark = tx.remark || '';
-      const productName = tx.product?.productName || 'ไม่ระบุน้ำยา';
+      const rawProductName = tx.product?.productName || 'ไม่ระบุน้ำยา';
+      const isMixedItem = tx.product
+        ? isMixedChemical(tx.product)
+        : rawProductName.includes('ผสม') || remark.includes('[น้ำยาผสมแล้ว]');
+
+      // แยก key ระหว่าง ผสม กับ หัวเชื้อ ชัดเจนแม้ชื่อพื้นฐานเหมือนกัน
+      const cleanName = rawProductName.replace(/\(ผสม\)/g, '').trim();
+      const itemKey = `${isMixedItem ? 'MIX' : 'PURE'}__${cleanName}`;
 
       // 1. ดึงชื่อร้านค้า
       const custMatch = remark.match(/\[ลูกค้า:\s*([^\]]+)\]/);
@@ -334,8 +348,14 @@ export default function ChemicalSystemPage() {
       }
       customerMap[customerName].totalQty += qty;
       customerMap[customerName].deliveryCount += 1;
-      customerMap[customerName].items[productName] =
-        (customerMap[customerName].items[productName] || 0) + qty;
+      if (!customerMap[customerName].items[itemKey]) {
+        customerMap[customerName].items[itemKey] = {
+          qty: 0,
+          isMixed: isMixedItem,
+          cleanName,
+        };
+      }
+      customerMap[customerName].items[itemKey].qty += qty;
 
       // 6. สะสมยอดตามช่องทางจัดส่ง
       if (!channelMap[channelName]) {
@@ -345,15 +365,12 @@ export default function ChemicalSystemPage() {
       channelMap[channelName].totalQty += qty;
     });
 
-    const topCustomers = Object.values(customerMap)
-      .sort((a, b) => b.totalQty - a.totalQty)
-      .slice(0, 5);
-
+    const allCustomers = Object.values(customerMap).sort((a, b) => b.totalQty - a.totalQty);
     const deliveryChannels = Object.values(channelMap).sort((a, b) => b.totalQty - a.totalQty);
     const totalOutQty = outboundTxs.reduce((sum, tx) => sum + Math.abs(Number(tx.quantity || 0)), 0);
 
     return {
-      topCustomers,
+      allCustomers,
       deliveryChannels,
       totalOutQty,
       totalBills: outboundTxs.length,
@@ -361,6 +378,10 @@ export default function ChemicalSystemPage() {
       shippingStats,
     };
   }, [transactions, analyticsPeriod, currentPeriod]);
+
+  const displayedCustomers = showAllCustomers
+    ? deliveryAnalytics.allCustomers
+    : deliveryAnalytics.allCustomers.slice(0, 5);
 
   const filteredCustomers = customers.filter((c) => {
     if (!customerSearchTerm.trim()) return true;
@@ -1418,7 +1439,7 @@ export default function ChemicalSystemPage() {
                     <BarChart3 className="text-emerald-400" size={20} /> สรุปสถิติการเบิกน้ำยา & ช่องทางการจัดส่งลูกค้า
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    วิเคราะห์ยอดส่งออกทั้งหมด {deliveryAnalytics.totalOutQty} ถัง/แกลลอน จาก {deliveryAnalytics.totalBills} บิลจัดส่ง
+                    วิเคราะห์ยอดส่งออกทั้งหมด {deliveryAnalytics.totalOutQty} ถัง/แกลลอน จาก {deliveryAnalytics.totalBills} บิลจัดส่ง ({deliveryAnalytics.allCustomers.length} ร้านค้า)
                   </p>
                 </div>
 
@@ -1460,22 +1481,47 @@ export default function ChemicalSystemPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* ฝั่งซ้าย: Top 5 ร้านที่เบิกน้ำยามากที่สุด */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                {/* ฝั่งซ้าย: อันดับร้านค้าที่เบิกน้ำยา (ขยายดูทั้งหมดได้) */}
                 <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-5 space-y-4">
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-wrap justify-between items-center gap-2">
                     <h4 className="font-bold text-white text-sm flex items-center gap-2">
-                      <Trophy className="text-amber-400" size={18} /> Top 5 ร้านค้าที่เบิกน้ำยามากที่สุด
+                      <Trophy className="text-amber-400" size={18} />
+                      {showAllCustomers
+                        ? `อันดับร้านค้าที่เบิกน้ำยาทั้งหมด (${deliveryAnalytics.allCustomers.length} ร้าน)`
+                        : 'Top 5 ร้านค้าที่เบิกน้ำยามากที่สุด'}
                     </h4>
+
+                    {deliveryAnalytics.allCustomers.length > 5 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllCustomers((prev) => !prev)}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1.5"
+                      >
+                        {showAllCustomers ? (
+                          <>
+                            <ChevronUp size={14} /> ย่อเหลือ Top 5
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown size={14} /> ดูทั้งหมด ({deliveryAnalytics.allCustomers.length} ร้าน)
+                          </>
+                        )}
+                      </button>
+                    )}
                   </div>
 
-                  {deliveryAnalytics.topCustomers.length === 0 ? (
+                  {displayedCustomers.length === 0 ? (
                     <div className="py-10 text-center text-slate-500 text-xs">
                       ยังไม่มีประวัติการจัดส่งในช่วงเวลานี้
                     </div>
                   ) : (
-                    <div className="space-y-3">
-                      {deliveryAnalytics.topCustomers.map((cust, idx) => {
+                    <div
+                      className={`space-y-3 ${
+                        showAllCustomers ? 'max-h-[540px] overflow-y-auto pr-1.5' : ''
+                      }`}
+                    >
+                      {displayedCustomers.map((cust, idx) => {
                         const percent =
                           deliveryAnalytics.totalOutQty > 0
                             ? Math.round((cust.totalQty / deliveryAnalytics.totalOutQty) * 100)
@@ -1524,14 +1570,20 @@ export default function ChemicalSystemPage() {
                               />
                             </div>
 
+                            {/* ป้ายแยกประเภท น้ำยาผสม vs หัวเชื้อ ชัดเจน */}
                             <div className="flex flex-wrap gap-1.5 pt-0.5">
-                              {Object.entries(cust.items).map(([pName, q]) => (
+                              {Object.entries(cust.items).map(([key, itemInfo]) => (
                                 <span
-                                  key={pName}
-                                  className="text-[10px] px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-300"
+                                  key={key}
+                                  className={`text-[10px] px-2 py-0.5 rounded border ${
+                                    itemInfo.isMixed
+                                      ? 'bg-emerald-950/60 border-emerald-500/30 text-emerald-300'
+                                      : 'bg-amber-950/60 border-amber-500/30 text-amber-300'
+                                  }`}
                                 >
-                                  {pName.replace('(ผสม)', '')}:{' '}
-                                  <strong className="text-amber-300 font-mono">{q}</strong>
+                                  {itemInfo.isMixed ? '🧪 [ผสม]' : '💧 [หัวเชื้อ]'}{' '}
+                                  {itemInfo.cleanName}:{' '}
+                                  <strong className="font-mono font-bold">{itemInfo.qty}</strong>
                                 </span>
                               ))}
                             </div>
