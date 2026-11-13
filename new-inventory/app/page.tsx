@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Coins, Layers, FlaskConical } from 'lucide-react';
+import { Package, Plus, Database, FolderPlus, Clock, TrendingUp, AlertTriangle, CheckCircle2, X, ChevronDown, Trash2, Edit3, ArrowRightLeft, ClipboardList, Server, Search, PenTool, AlertOctagon, DollarSign, Filter, BarChart3, UserCheck, PieChart as PieChartIcon, TrendingDown, Zap, Wrench, History, Printer, Coins, FlaskConical, Users, Truck } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import PrintQrModal from '@/components/PrintQrModal';
 import Link from 'next/link';
@@ -11,18 +11,35 @@ interface Category {
   categoryName: string; 
   requiresSerialNumber?: boolean; 
 }
+
 interface Product {
-  productId: number; productName: string; productModelCode: string | null;
-  unitCost: number | null; salePrice: number | null; rentPrice: number | null;
-  stockQty: number | null; isPreorder: boolean; categoryId: number; unitName: string | null;
+  productId: number; 
+  productName: string; 
+  productModelCode: string | null;
+  unitCost: number | null; 
+  salePrice: number | null; 
+  rentPrice: number | null;
+  stockQty: number | null; 
+  isPreorder: boolean; 
+  categoryId: number; 
+  unitName: string | null;
   category?: Category;
 }
+
 interface Transaction {
-  transactionId: number; productId: number; transactionType: string;
-  quantity: number; transactionDate: string; referenceNo: string | null; remark: string | null;
-  employeeId: number | null; supplierId: number | null; lotDetails?: any[];
+  transactionId: number; 
+  productId: number; 
+  transactionType: string;
+  quantity: number; 
+  transactionDate: string; 
+  referenceNo: string | null; 
+  remark: string | null;
+  employeeId: number | null; 
+  supplierId: number | null; 
+  lotDetails?: any[];
   product: Product;
 }
+
 interface Customer {
   customer_id: number;
   customer_name: string;
@@ -31,11 +48,39 @@ interface Customer {
   customer_number: string | null;
   customer_status: string | null;
 }
+
+interface Employee {
+  employeeId: number;
+  employeeName: string;
+  employeeRole?: string;
+  employeeDepartment?: string | null;
+  employeePhone?: string;
+  employeeStatus?: string;
+}
+
+interface Supplier {
+  supplierId: number;
+  supplierName: string;
+  contactName?: string | null;
+  supplierPhone?: string | null;
+  supplierStatus?: string;
+}
+
 interface Machine {
-  assetId: number; productId: number; assetSerialNumber: string; assetQrCode: string | null;
-  assetStatus: string; assetInstallDate: string | null; assetPurchaseCost: number | null;
-  assetPurchaseDate: string | null; assetWarrantyExpireDate: string | null; isInternalSn: boolean;
-  supplierId: number | null; customerId: number | null; product?: Product; customer?: Customer;
+  assetId: number; 
+  productId: number; 
+  assetSerialNumber: string; 
+  assetQrCode: string | null;
+  assetStatus: string; 
+  assetInstallDate: string | null; 
+  assetPurchaseCost: number | null;
+  assetPurchaseDate: string | null; 
+  assetWarrantyExpireDate: string | null; 
+  isInternalSn: boolean;
+  supplierId: number | null; 
+  customerId: number | null; 
+  product?: Product; 
+  customer?: Customer;
 }
 
 interface BulkTxItem {
@@ -52,6 +97,8 @@ export default function MainInventorySystem() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [quickSearch, setQuickSearch] = useState('');
@@ -91,6 +138,12 @@ export default function MainInventorySystem() {
   const [bulkTxEmployee, setBulkTxEmployee] = useState(''); 
   const [bulkTxSupplier, setBulkTxSupplier] = useState('');
   const [bulkTxDate, setBulkTxDate] = useState('');
+
+  // State สำหรับ Dropdown พนักงาน & ซัพพลายเออร์ ในหน้าจัดการสต็อก
+  const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+  const [isSupplierDropdownOpen, setIsSupplierDropdownOpen] = useState(false);
+  const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
   
   useEffect(() => {
     setBulkTxDate(getTodayString());
@@ -193,12 +246,14 @@ export default function MainInventorySystem() {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const [prodRes, machRes, alertsRes, custRes, txRes] = await Promise.all([
+      const [prodRes, machRes, alertsRes, custRes, txRes, empRes, supRes] = await Promise.all([
         fetch('/api/products').catch(() => null),
         fetch('/api/machines').catch(() => null),
         fetch('/api/reports/alerts').catch(() => null),
         fetch('/api/customers').catch(() => null),
-        fetch('/api/transactions').catch(() => null)
+        fetch('/api/transactions').catch(() => null),
+        fetch('/api/employees').catch(() => null),
+        fetch('/api/suppliers').catch(() => null)
       ]);
       
       if (prodRes) {
@@ -228,6 +283,18 @@ export default function MainInventorySystem() {
       if (txRes) {
         const txData = await txRes.json();
         if (txData.success) setTransactionsHistory(txData.transactions || []);
+      }
+
+      if (empRes) {
+        const empData = await empRes.json();
+        if (empData.success) setEmployees(empData.employees || empData.data || []);
+        else if (Array.isArray(empData)) setEmployees(empData);
+      }
+
+      if (supRes) {
+        const supData = await supRes.json();
+        if (supData.success) setSuppliers(supData.suppliers || supData.data || []);
+        else if (Array.isArray(supData)) setSuppliers(supData);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -345,8 +412,11 @@ export default function MainInventorySystem() {
       const res = await fetch('/api/transactions', { 
         method: 'POST', headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ 
-          transactionType: bulkTxType, referenceNo: bulkTxRef, remark: bulkTxRemark, 
-          employeeId: bulkTxEmployee ? Number(bulkTxEmployee) : null, supplierId: bulkTxType === 'IN' && bulkTxSupplier ? Number(bulkTxSupplier) : null, 
+          transactionType: bulkTxType, 
+          referenceNo: bulkTxRef, 
+          remark: bulkTxRemark, 
+          employeeId: bulkTxEmployee ? Number(bulkTxEmployee) : null, 
+          supplierId: bulkTxType === 'IN' && bulkTxSupplier ? Number(bulkTxSupplier) : null, 
           transactionDate: bulkTxDate ? new Date(bulkTxDate).toISOString() : new Date().toISOString(),
           items: itemsToSubmit
         }) 
@@ -416,7 +486,7 @@ export default function MainInventorySystem() {
   const safeCategories = categories || [];
   const safeMachines = machines || [];
 
-  // ⭐ ปรับปรุงฟังก์ชันเช็คสินค้าสิ้นเปลือง (ยึด requiresSerialNumber เป็นหลัก)
+  // ฟังก์ชันเช็คสินค้าสิ้นเปลือง (ยึด requiresSerialNumber เป็นหลัก)
   const isConsumableProduct = (p: Product) => {
     const catId = p.categoryId;
     const category = safeCategories.find(c => c.id === catId);
@@ -459,7 +529,7 @@ export default function MainInventorySystem() {
 
   const currentListToDisplay = inventorySubTab === 'consumables' ? consumableProducts : machineCatalogProducts;
   
-  // ⭐ ปรับปรุงฟังก์ชันกรองหมวดหมู่ฝั่งหน้าบ้าน
+  // ฟังก์ชันกรองหมวดหมู่ฝั่งหน้าบ้าน
   const displayedFilterCategories = safeCategories.filter(cat => {
     const matchesSearch = cat.categoryName.toLowerCase().includes(filterCategorySearch.toLowerCase());
     const catId = cat.id;
@@ -554,6 +624,32 @@ export default function MainInventorySystem() {
       (p.productModelCode || '').toLowerCase().includes(txProductSearch.toLowerCase())
     );
   });
+
+  // ตัวกรองพนักงาน & ซัพพลายเออร์ (อิงตามคอลัมน์ใน schema.prisma)
+  const filteredEmployees = employees.filter(emp => {
+    const q = employeeSearchQuery.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      String(emp.employeeId).includes(q) ||
+      (emp.employeeName || '').toLowerCase().includes(q) ||
+      (emp.employeeRole || '').toLowerCase().includes(q) ||
+      (emp.employeeDepartment || '').toLowerCase().includes(q)
+    );
+  });
+
+  const filteredSuppliers = suppliers.filter(sup => {
+    const q = supplierSearchQuery.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      String(sup.supplierId).includes(q) ||
+      (sup.supplierName || '').toLowerCase().includes(q) ||
+      (sup.contactName || '').toLowerCase().includes(q) ||
+      (sup.supplierPhone || '').toLowerCase().includes(q)
+    );
+  });
+
+  const selectedEmployeeObj = employees.find(emp => String(emp.employeeId) === String(bulkTxEmployee));
+  const selectedSupplierObj = suppliers.find(sup => String(sup.supplierId) === String(bulkTxSupplier));
 
   const filteredMachines = safeMachines.filter(m => (m.assetSerialNumber || '').toLowerCase().includes(machineSearch.toLowerCase()) || (m.product?.productName || '').toLowerCase().includes(machineSearch.toLowerCase()));
 
@@ -1054,6 +1150,7 @@ export default function MainInventorySystem() {
                   ) : (
                     filteredMachines.map((m) => {
                       const boundCustomer = customers.find(c => c.customer_id === m.customerId) || m.customer;
+                      const boundSupplier = suppliers.find(s => s.supplierId === m.supplierId);
                       return (
                         <tr key={m.assetId} className="hover:bg-slate-800/40 transition">
                           <td className="p-4">
@@ -1082,7 +1179,15 @@ export default function MainInventorySystem() {
                             <div className="text-slate-400">ติดตั้ง: {m.assetInstallDate ? new Date(m.assetInstallDate).toLocaleDateString('th-TH') : '-'}</div>
                           </td>
                           <td className="p-4 text-xs">
-                            {m.supplierId ? (<div className="inline-block px-2 py-1 mb-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">รหัสผู้ผลิต: {m.supplierId}</div>) : (<div className="text-slate-600 mb-1">- ไม่ระบุ Supplier -</div>)}
+                            {boundSupplier ? (
+                              <div className="inline-block px-2 py-1 mb-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                                {boundSupplier.supplierName}
+                              </div>
+                            ) : m.supplierId ? (
+                              <div className="inline-block px-2 py-1 mb-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">รหัสผู้ผลิต: {m.supplierId}</div>
+                            ) : (
+                              <div className="text-slate-600 mb-1">- ไม่ระบุ Supplier -</div>
+                            )}
                             <div className="text-slate-400">รับเข้า: {m.assetPurchaseDate ? new Date(m.assetPurchaseDate).toLocaleDateString('th-TH') : '-'}</div>
                           </td>
                           <td className="p-4 text-xs font-mono text-slate-300">
@@ -1459,7 +1564,21 @@ export default function MainInventorySystem() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label className="block mb-1.5 text-sm text-slate-400">รหัส Supplier (ที่ซื้อเครื่องนี้มา)</label><input type="number" placeholder="ระบุรหัส Supplier INT" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={machineFormData.supplierId || ''} onChange={(e) => setMachineFormData({...machineFormData, supplierId: e.target.value ? Number(e.target.value) : null})} /></div>
+                <div>
+                  <label className="block mb-1.5 text-sm text-slate-400">ซัพพลายเออร์ (ที่ซื้อเครื่องนี้มา)</label>
+                  <select 
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white outline-none"
+                    value={machineFormData.supplierId || ''}
+                    onChange={(e) => setMachineFormData({...machineFormData, supplierId: e.target.value ? Number(e.target.value) : null})}
+                  >
+                    <option value="">-- ไม่ระบุ Supplier --</option>
+                    {suppliers.map(sup => (
+                      <option key={sup.supplierId} value={sup.supplierId}>
+                        #{sup.supplierId} - {sup.supplierName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div><label className="block mb-1.5 text-sm text-slate-400">วันที่ติดตั้งให้ลูกค้า</label><input type="date" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={machineFormData.assetInstallDate as string || ''} onChange={(e) => setMachineFormData({...machineFormData, assetInstallDate: e.target.value})} /></div>
               </div>
             </div>
@@ -1493,7 +1612,7 @@ export default function MainInventorySystem() {
                       <span className="font-bold text-indigo-400">📥 รับเข้าคลัง (Initial Registration)</span>
                       <span className="text-slate-500">{selectedMachineForLog.assetPurchaseDate ? new Date(selectedMachineForLog.assetPurchaseDate).toLocaleDateString('th-TH') : 'วันที่เริ่มต้น'}</span>
                     </div>
-                    <p className="text-slate-400">บันทึกรับเครื่องเข้าสู่ระบบ (Supplier ID: {selectedMachineForLog.supplierId || 'ไม่ระบุ'}, ต้นทุน: {selectedMachineForLog.assetPurchaseCost || 0} ฿)</p>
+                    <p className="text-slate-400">บันทึกรับเครื่องเข้าสู่ระบบ (Supplier: {suppliers.find(s => s.supplierId === selectedMachineForLog.supplierId)?.supplierName || selectedMachineForLog.supplierId || 'ไม่ระบุ'}, ต้นทุน: {selectedMachineForLog.assetPurchaseCost || 0} ฿)</p>
                   </div>
 
                   {selectedMachineForLog.customerId && (
@@ -1513,7 +1632,7 @@ export default function MainInventorySystem() {
                         <span className="font-bold text-amber-400">🔧 ดึงกลับมาซ่อมบำรุง (Maintenance Service)</span>
                         <span className="text-slate-500">สถานะปัจจุบัน</span>
                       </div>
-                      <p className="text-amber-200/80">เครื่องอยู่ระหว่างการตรวจสอบและซ่อมบำรุง (แมัยังผูกชื่อลูกค้าเดิมไว้เพื่อติดตามที่มา)</p>
+                      <p className="text-amber-200/80">เครื่องอยู่ระหว่างการตรวจสอบและซ่อมบำรุง (แม้ยังผูกชื่อลูกค้าเดิมไว้เพื่อติดตามที่มา)</p>
                     </div>
                   )}
                 </div>
@@ -1822,8 +1941,23 @@ export default function MainInventorySystem() {
       )}
 
       {isBulkTxModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setOpenTxDropdownIndex(null)}>
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+        <div 
+          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" 
+          onClick={() => {
+            setOpenTxDropdownIndex(null);
+            setIsEmployeeDropdownOpen(false);
+            setIsSupplierDropdownOpen(false);
+          }}
+        >
+          <div 
+            className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" 
+            onClick={e => {
+              e.stopPropagation();
+              setOpenTxDropdownIndex(null);
+              setIsEmployeeDropdownOpen(false);
+              setIsSupplierDropdownOpen(false);
+            }}
+          >
             <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-800/30">
               <h2 className="text-lg font-bold text-white flex items-center gap-2"><ArrowRightLeft className="text-emerald-500" size={20} /> จัดการสต็อกสินค้า {bulkTxType === 'IN' ? '(สร้าง Lot)' : '(ตัด FIFO)'}</h2>
               <button onClick={() => setIsBulkTxModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
@@ -1840,6 +1974,8 @@ export default function MainInventorySystem() {
                         const newType = e.target.value;
                         setBulkTxType(newType);
                         setOpenTxDropdownIndex(null);
+                        setIsEmployeeDropdownOpen(false);
+                        setIsSupplierDropdownOpen(false);
                         if (newType === 'OUT') {
                           setBulkTxItems(prev => prev.map(item => {
                             const prod = safeProducts.find(p => p.productId === item.productId);
@@ -1868,14 +2004,178 @@ export default function MainInventorySystem() {
                       onChange={(e) => setBulkTxDate(e.target.value)} 
                     />
                   </div>
-                  <div><label className="block mb-1.5 text-sm text-slate-400">รหัสพนักงาน (ตัวเลข)</label><input type="number" placeholder="เช่น 101" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxEmployee} onChange={(e) => setBulkTxEmployee(e.target.value)} /></div>
+
+                  {/* Dropdown พนักงาน (อิงตาม schema.prisma: employeeId, employeeName, employeeRole, employeeDepartment) */}
+                  <div className="relative" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="text-sm text-slate-300 font-medium flex items-center gap-1.5">
+                        <Users size={15} className="text-blue-400" /> {bulkTxType === 'IN' ? 'พนักงานผู้รับเข้า' : 'พนักงานผู้เบิก'}
+                      </label>
+                      {bulkTxEmployee && (
+                        <button type="button" onClick={() => setBulkTxEmployee('')} className="text-xs text-rose-400 hover:underline">
+                          ล้างค่า
+                        </button>
+                      )}
+                    </div>
+                    <div
+                      onClick={() => {
+                        setIsEmployeeDropdownOpen(!isEmployeeDropdownOpen);
+                        setIsSupplierDropdownOpen(false);
+                        setOpenTxDropdownIndex(null);
+                        setEmployeeSearchQuery('');
+                      }}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white flex justify-between items-center cursor-pointer text-sm hover:border-blue-500 transition"
+                    >
+                      <span className="truncate">
+                        {selectedEmployeeObj ? (
+                          <span className="flex items-center gap-2">
+                            <span className="font-mono text-blue-400 font-bold">#{selectedEmployeeObj.employeeId}</span>
+                            <span className="text-white">{selectedEmployeeObj.employeeName}</span>
+                          </span>
+                        ) : bulkTxEmployee ? (
+                          <span className="font-mono text-blue-400">รหัสพนักงาน: #{bulkTxEmployee}</span>
+                        ) : (
+                          <span className="text-slate-400">-- เลือกพนักงาน --</span>
+                        )}
+                      </span>
+                      <ChevronDown size={16} className="text-slate-400 shrink-0 ml-2" />
+                    </div>
+
+                    {isEmployeeDropdownOpen && (
+                      <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+                        <div className="p-2 bg-slate-950 border-b border-slate-800">
+                          <input
+                            type="text"
+                            autoFocus
+                            placeholder="🔍 ค้นหารหัส, ชื่อ หรือตำแหน่ง..."
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white outline-none focus:border-blue-500"
+                            value={employeeSearchQuery}
+                            onChange={(e) => setEmployeeSearchQuery(e.target.value)}
+                          />
+                        </div>
+                        <ul className="max-h-48 overflow-y-auto divide-y divide-slate-800/60 p-1">
+                          {filteredEmployees.length === 0 ? (
+                            <li className="p-3 text-center text-slate-500 text-xs">ไม่พบรายชื่อพนักงาน</li>
+                          ) : (
+                            filteredEmployees.map((emp) => (
+                              <li
+                                key={emp.employeeId}
+                                onClick={() => {
+                                  setBulkTxEmployee(String(emp.employeeId));
+                                  setIsEmployeeDropdownOpen(false);
+                                  setEmployeeSearchQuery('');
+                                }}
+                                className="p-2.5 text-xs rounded-lg cursor-pointer hover:bg-slate-800 transition flex items-center justify-between gap-2"
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className="px-1.5 py-0.5 bg-blue-500/10 text-blue-400 font-mono rounded border border-blue-500/20 shrink-0">
+                                    #{emp.employeeId}
+                                  </span>
+                                  <span className="text-white font-medium truncate">{emp.employeeName}</span>
+                                </div>
+                                {(emp.employeeRole || emp.employeeDepartment) && (
+                                  <span className="text-[11px] text-slate-400 shrink-0">
+                                    {emp.employeeRole || emp.employeeDepartment}
+                                  </span>
+                                )}
+                              </li>
+                            ))
+                          )}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {bulkTxType === 'IN' && (<div><label className="block mb-1.5 text-sm text-slate-400">รหัสซัพพลายเออร์ (ตัวเลข)</label><input type="number" placeholder="เช่น 505" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxSupplier} onChange={(e) => setBulkTxSupplier(e.target.value)} /></div>)}
-                  <div className={bulkTxType === 'IN' ? '' : 'md:col-span-2'}><label className="block mb-1.5 text-sm text-slate-400">หมายเหตุ</label><input type="text" placeholder="ระบุเหตุผล" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxRemark} onChange={(e) => setBulkTxRemark(e.target.value)} /></div>
+                  {/* Dropdown ซัพพลายเออร์ (แสดงเฉพาะตอนรับเข้า IN - อิงตาม schema.prisma: supplierId, supplierName, supplierPhone) */}
+                  {bulkTxType === 'IN' && (
+                    <div className="relative" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="text-sm text-slate-300 font-medium flex items-center gap-1.5">
+                          <Truck size={15} className="text-amber-400" /> ซัพพลายเออร์ (ผู้ขาย)
+                        </label>
+                        {bulkTxSupplier && (
+                          <button type="button" onClick={() => setBulkTxSupplier('')} className="text-xs text-rose-400 hover:underline">
+                            ล้างค่า
+                          </button>
+                        )}
+                      </div>
+                      <div
+                        onClick={() => {
+                          setIsSupplierDropdownOpen(!isSupplierDropdownOpen);
+                          setIsEmployeeDropdownOpen(false);
+                          setOpenTxDropdownIndex(null);
+                          setSupplierSearchQuery('');
+                        }}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white flex justify-between items-center cursor-pointer text-sm hover:border-amber-500 transition"
+                      >
+                        <span className="truncate">
+                          {selectedSupplierObj ? (
+                            <span className="flex items-center gap-2">
+                              <span className="font-mono text-amber-400 font-bold">#{selectedSupplierObj.supplierId}</span>
+                              <span className="text-white">{selectedSupplierObj.supplierName}</span>
+                            </span>
+                          ) : bulkTxSupplier ? (
+                            <span className="font-mono text-amber-400">รหัสซัพพลายเออร์: #{bulkTxSupplier}</span>
+                          ) : (
+                            <span className="text-slate-400">-- เลือกซัพพลายเออร์ --</span>
+                          )}
+                        </span>
+                        <ChevronDown size={16} className="text-slate-400 shrink-0 ml-2" />
+                      </div>
+
+                      {isSupplierDropdownOpen && (
+                        <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+                          <div className="p-2 bg-slate-950 border-b border-slate-800">
+                            <input
+                              type="text"
+                              autoFocus
+                              placeholder="🔍 ค้นหารหัส, ชื่อซัพพลายเออร์ หรือเบอร์โทร..."
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white outline-none focus:border-amber-500"
+                              value={supplierSearchQuery}
+                              onChange={(e) => setSupplierSearchQuery(e.target.value)}
+                            />
+                          </div>
+                          <ul className="max-h-48 overflow-y-auto divide-y divide-slate-800/60 p-1">
+                            {filteredSuppliers.length === 0 ? (
+                              <li className="p-3 text-center text-slate-500 text-xs">ไม่พบรายชื่อซัพพลายเออร์</li>
+                            ) : (
+                              filteredSuppliers.map((sup) => (
+                                <li
+                                  key={sup.supplierId}
+                                  onClick={() => {
+                                    setBulkTxSupplier(String(sup.supplierId));
+                                    setIsSupplierDropdownOpen(false);
+                                    setSupplierSearchQuery('');
+                                  }}
+                                  className="p-2.5 text-xs rounded-lg cursor-pointer hover:bg-slate-800 transition flex items-center justify-between gap-2"
+                                >
+                                  <div className="flex items-center gap-2 truncate">
+                                    <span className="px-1.5 py-0.5 bg-amber-500/10 text-amber-400 font-mono rounded border border-amber-500/20 shrink-0">
+                                      #{sup.supplierId}
+                                    </span>
+                                    <span className="text-white font-medium truncate">{sup.supplierName}</span>
+                                  </div>
+                                  {sup.supplierPhone && (
+                                    <span className="text-[11px] text-slate-400 font-mono shrink-0">{sup.supplierPhone}</span>
+                                  )}
+                                </li>
+                              ))
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className={bulkTxType === 'IN' ? '' : 'md:col-span-2'}>
+                    <label className="block mb-1.5 text-sm text-slate-400">หมายเหตุ</label>
+                    <input type="text" placeholder="ระบุเหตุผล" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none" value={bulkTxRemark} onChange={(e) => setBulkTxRemark(e.target.value)} />
+                  </div>
                 </div>
               </div>
+
               <div>
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="text-sm font-medium text-slate-400">รายการสินค้า</h3>
@@ -1892,7 +2192,16 @@ export default function MainInventorySystem() {
                       <div key={index} className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col gap-3">
                         <div className="flex gap-3 items-center">
                           <div className="relative flex-1">
-                            <div onClick={() => { setOpenTxDropdownIndex(openTxDropdownIndex === index ? null : index); setTxProductSearch(''); }} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white flex justify-between items-center cursor-pointer text-sm">
+                            <div 
+                              onClick={(e) => { 
+                                e.stopPropagation();
+                                setOpenTxDropdownIndex(openTxDropdownIndex === index ? null : index); 
+                                setIsEmployeeDropdownOpen(false);
+                                setIsSupplierDropdownOpen(false);
+                                setTxProductSearch(''); 
+                              }} 
+                              className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white flex justify-between items-center cursor-pointer text-sm"
+                            >
                               <span className="truncate pr-2">
                                 {selectedProduct ? (
                                   <span className="flex items-center gap-2">
