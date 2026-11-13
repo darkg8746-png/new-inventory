@@ -27,12 +27,7 @@ export async function POST(request: Request) {
         throw new Error('ไม่พบข้อมูลผลิตภัณฑ์น้ำยานี้ในระบบ');
       }
 
-      const currentStock = product.stockQty ?? 0;
-      if (currentStock < qtyNum) {
-        throw new Error(`สต็อกน้ำยาไม่เพียงพอ (คงเหลือในคลัง: ${currentStock} ${product.unitName || 'ถัง'})`);
-      }
-
-      // ค้นหา Lot ที่มีของเหลืออยู่จริง (รองรับทั้งแบบระบุ Active และแบบหยิบ Lot ที่เหลืออยู่)
+      // 1. ค้นหา Lot ที่มีของเหลืออยู่จริงก่อนเสมอ
       let activeLots = await tx.productLots.findMany({
         where: {
           productId: prodIdNum,
@@ -43,7 +38,15 @@ export async function POST(request: Request) {
         ],
       });
 
-      // ถ้าไม่มี Lot ในระบบ แต่คลังหลักมีสต็อก สร้าง Auto-Lot ให้ทันทีเพื่อไม่ให้ติดปัญหา
+      // 2. คำนวณยอดคงเหลือจริง (รวมจาก Lot ที่มีอยู่ ถ้าไม่มี Lot ค่อยดูจาก stockQty)
+      const lotStockTotal = activeLots.reduce((sum, lot) => sum + Number(lot.remainingQty || 0), 0);
+      const currentStock = lotStockTotal > 0 ? lotStockTotal : Number(product.stockQty ?? 0);
+
+      if (currentStock < qtyNum) {
+        throw new Error(`สต็อกน้ำยาไม่เพียงพอ (คงเหลือในคลัง: ${currentStock} ${product.unitName || 'ถัง'})`);
+      }
+
+      // 3. ถ้าไม่มี Lot ในระบบ แต่คลังหลักมีสต็อก สร้าง Auto-Lot ให้ทันที
       if (activeLots.length === 0 && currentStock > 0) {
         const fallbackLot = await tx.productLots.create({
           data: {
@@ -66,9 +69,9 @@ export async function POST(request: Request) {
       for (const lot of activeLots) {
         if (qtyToDeduct <= 0) break;
 
-        const deductFromThisLot = Math.min(lot.remainingQty, qtyToDeduct);
-        const newRemaining = lot.remainingQty - deductFromThisLot;
-        const unitCost = lot.unitCost || product.unitCost || 0;
+        const deductFromThisLot = Math.min(Number(lot.remainingQty), qtyToDeduct);
+        const newRemaining = Number(lot.remainingQty) - deductFromThisLot;
+        const unitCost = Number(lot.unitCost || product.unitCost || 0);
 
         await tx.productLots.update({
           where: { lotId: lot.lotId },
@@ -115,7 +118,7 @@ export async function POST(request: Request) {
           transactionType: 'OUT',
           quantity: qtyNum,
           transactionDate: new Date(),
-          transactionUnitCost: qtyNum > 0 ? totalCostApplied / qtyNum : (product.unitCost || 0),
+          transactionUnitCost: qtyNum > 0 ? totalCostApplied / qtyNum : Number(product.unitCost || 0),
           referenceNo: finalRefNo,
           remark: finalRemark,
           employeeId: employeeId ? Number(employeeId) : null,
@@ -129,6 +132,7 @@ export async function POST(request: Request) {
         },
       });
 
+      // 4. ซิงค์ยอด stockQty ในตารางหลักให้ตรงกับยอดคงเหลือจริงหลังหักออก
       await tx.productsCatalog.update({
         where: { productId: prodIdNum },
         data: {
