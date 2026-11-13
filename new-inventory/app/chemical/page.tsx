@@ -115,8 +115,14 @@ export default function ChemicalSystemPage() {
   const [deliveryRef, setDeliveryRef] = useState<string>('');
   const [deliveryRemark, setDeliveryRemark] = useState<string>('');
 
-  // Analytics Filter State (Sub-tab B)
+  // Analytics Filter State (Sub-tab B) - เก็บเวลาปัจจุบันใน useEffect เพื่อเลี่ยง Prerender Error ใน Next.js 16
   const [analyticsPeriod, setAnalyticsPeriod] = useState<'THIS_MONTH' | 'THIS_YEAR' | 'ALL'>('ALL');
+  const [currentPeriod, setCurrentPeriod] = useState<{ month: number; year: number } | null>(null);
+
+  useEffect(() => {
+    const now = new Date();
+    setCurrentPeriod({ month: now.getUTCMonth(), year: now.getUTCFullYear() });
+  }, []);
 
   // Searchable Customer Dropdown State
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
@@ -257,10 +263,6 @@ export default function ChemicalSystemPage() {
 
   // ประมวลผลสถิติการเบิกของร้านค้า & ช่องทางจัดส่ง สำหรับ Sub-tab B
   const deliveryAnalytics = useMemo(() => {
-    const now = new Date();
-    const currentMonth = now.getUTCMonth();
-    const currentYear = now.getUTCFullYear();
-
     const customerMap: Record<
       string,
       { name: string; totalQty: number; deliveryCount: number; items: Record<string, number> }
@@ -275,13 +277,16 @@ export default function ChemicalSystemPage() {
         (tx.remark || '').includes('[ลูกค้า:') || (tx.referenceNo || '').startsWith('DO-');
       if (!isDelivery) return false;
 
-      if (analyticsPeriod !== 'ALL' && tx.transactionDate) {
+      if (analyticsPeriod !== 'ALL' && tx.transactionDate && currentPeriod) {
         const txDate = new Date(tx.transactionDate);
         if (analyticsPeriod === 'THIS_MONTH') {
-          return txDate.getUTCMonth() === currentMonth && txDate.getUTCFullYear() === currentYear;
+          return (
+            txDate.getUTCMonth() === currentPeriod.month &&
+            txDate.getUTCFullYear() === currentPeriod.year
+          );
         }
         if (analyticsPeriod === 'THIS_YEAR') {
-          return txDate.getUTCFullYear() === currentYear;
+          return txDate.getUTCFullYear() === currentPeriod.year;
         }
       }
       return true;
@@ -355,7 +360,7 @@ export default function ChemicalSystemPage() {
       reasonStats,
       shippingStats,
     };
-  }, [transactions, analyticsPeriod]);
+  }, [transactions, analyticsPeriod, currentPeriod]);
 
   const filteredCustomers = customers.filter((c) => {
     if (!customerSearchTerm.trim()) return true;
