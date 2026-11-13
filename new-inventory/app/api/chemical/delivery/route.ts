@@ -99,12 +99,10 @@ export async function POST(request: Request) {
         referenceNo?.trim() ||
         `DO-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const customer = await tx.customers.findFirst({
+      // แก้ไขการค้นหาลูกค้าให้ใช้ customerId โดยตรง (แก้ Error customer_id)
+      const customer = await tx.customers.findUnique({
         where: {
-          OR: [
-            { customer_id: custIdNum },
-            { customerId: custIdNum }
-          ] as any
+          customerId: custIdNum,
         },
       });
 
