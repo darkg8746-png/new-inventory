@@ -100,6 +100,13 @@ export default function ChemicalSystemPage() {
   const [deliveryProductId, setDeliveryProductId] = useState<number | ''>('');
   const [deliveryQty, setDeliveryQty] = useState<number>(1);
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | ''>('');
+  const [deliveryEmployeeId, setDeliveryEmployeeId] = useState<number | ''>('');
+  const [orderReason, setOrderReason] = useState<string>('ส่งตามรอบปกติ (Standard Delivery)');
+  const [deliveryChannel, setDeliveryChannel] = useState<'PM_ROUND' | 'DIRECT_TECH' | 'EXPRESS'>('PM_ROUND');
+  const [courierName, setCourierName] = useState<string>('');
+  const [trackingNo, setTrackingNo] = useState<string>('');
+  const [shippingCost, setShippingCost] = useState<string>('');
+  const [shippingPayer, setShippingPayer] = useState<'COMPANY' | 'CUSTOMER'>('COMPANY');
   const [deliveryRef, setDeliveryRef] = useState<string>('');
   const [deliveryRemark, setDeliveryRemark] = useState<string>('');
 
@@ -377,6 +384,7 @@ export default function ChemicalSystemPage() {
     if (!deliveryProductId) return alert('กรุณาเลือกผลิตภัณฑ์น้ำยาที่ต้องการจัดส่ง');
     if (deliveryQty <= 0) return alert('กรุณาระบุจำนวนมากกว่า 0');
     if (!selectedCustomerId) return alert('กรุณาเลือกร้านค้าลูกค้าผู้รับน้ำยา');
+    if (!deliveryEmployeeId) return alert('กรุณาเลือกพนักงานผู้จัดส่ง / ผู้รับผิดชอบ');
 
     setIsSubmitting(true);
     let uploadedPhotoUrl: string | null = null;
@@ -406,8 +414,23 @@ export default function ChemicalSystemPage() {
         uploadedPhotoUrl = publicUrlData.publicUrl;
       }
 
+      const selectedSender = employees.find(
+        (emp, idx) => Number(getEmpId(emp, idx)) === Number(deliveryEmployeeId)
+      );
+      const senderName = selectedSender
+        ? getEmpDisplayName(selectedSender, deliveryEmployeeId)
+        : `ID: ${deliveryEmployeeId}`;
+
+      const channelText =
+        deliveryChannel === 'PM_ROUND'
+          ? 'ฝากส่งพร้อมรอบ PM'
+          : deliveryChannel === 'DIRECT_TECH'
+          ? 'ช่างวิ่งส่งด่วน (Direct Tech)'
+          : `ขนส่งเอกชน (${courierName || '-'} | Tracking: ${trackingNo || '-'} | ค่าส่ง: ${shippingCost || 0} บ. [${shippingPayer === 'COMPANY' ? 'บริษัทจ่าย' : 'เก็บลูกค้า'}])`;
+
       const typePrefix = deliveryType === 'MIXED' ? '[น้ำยาผสมแล้ว]' : '[หัวเชื้อ]';
-      const combinedRemark = `${typePrefix} ${deliveryRemark}`.trim();
+      const metaPrefix = `[ผู้ส่ง: ${senderName}] [เหตุผล: ${orderReason}] [ช่องทาง: ${channelText}]`;
+      const combinedRemark = `${typePrefix} ${metaPrefix} ${deliveryRemark}`.trim();
 
       const res = await fetch('/api/chemical/delivery', {
         method: 'POST',
@@ -416,6 +439,13 @@ export default function ChemicalSystemPage() {
           productId: Number(deliveryProductId),
           quantity: Number(deliveryQty),
           customerId: Number(selectedCustomerId),
+          employeeId: Number(deliveryEmployeeId),
+          orderReason,
+          deliveryChannel,
+          courierName: deliveryChannel === 'EXPRESS' ? courierName : null,
+          trackingNo: deliveryChannel === 'EXPRESS' ? trackingNo : null,
+          shippingCost: deliveryChannel === 'EXPRESS' ? Number(shippingCost || 0) : 0,
+          shippingPayer: deliveryChannel === 'EXPRESS' ? shippingPayer : null,
           referenceNo: deliveryRef,
           remark: combinedRemark,
           photoUrl: uploadedPhotoUrl,
@@ -429,6 +459,13 @@ export default function ChemicalSystemPage() {
         setDeliveryQty(1);
         setSelectedCustomerId('');
         setCustomerSearchTerm('');
+        setDeliveryEmployeeId('');
+        setOrderReason('ส่งตามรอบปกติ (Standard Delivery)');
+        setDeliveryChannel('PM_ROUND');
+        setCourierName('');
+        setTrackingNo('');
+        setShippingCost('');
+        setShippingPayer('COMPANY');
         clearPhoto();
         fetchData();
       } else {
@@ -536,7 +573,7 @@ export default function ChemicalSystemPage() {
             <strong className="text-white font-bold block mb-0.5">หลักการทำงานของระบบน้ำยา:</strong>
             {activeTab === 'mixing'
               ? 'เบิกหัวเชื้อน้ำยาออกจากคลังโดย ไม่ต้องระบุชื่อร้านค้าลูกค้า ระบบจะตัดสต็อกหัวเชื้อบริสุทธิ์ (OUT) 1 ส่วน และเพิ่มสต็อกน้ำยาผสมสำเร็จเข้าคลัง (IN) 2 ส่วน (อัตราส่วน 1 ถังหัวเชื้อ = 2 ถังผสม) ให้อัตโนมัติพร้อมคำนวณเฉลี่ยต้นทุนต่อถัง'
-              : 'เลือกประเภทน้ำยา (น้ำยาผสมแล้ว หรือ หัวเชื้อ) เลือกรายการ ร้านค้าลูกค้า และสามารถถ่ายรูปหน้างาน/ใบเซ็นรับแนบไปกับบิลได้ทันที'}
+              : 'เลือกประเภทน้ำยา (น้ำยาผสมแล้ว หรือ หัวเชื้อ) เลือกรายการ ร้านค้าลูกค้า ผู้จัดส่ง เหตุผลและช่องทางการจัดส่ง พร้อมถ่ายรูปหลักฐานแนบไปกับบิลได้ทันที'}
           </div>
         </div>
 
@@ -789,14 +826,13 @@ export default function ChemicalSystemPage() {
                 </div>
               </div>
 
-              {/* 3. เลือกร้านค้าลูกค้า (แบบค้นหาได้เหมือนหน้าเครื่องจักร) & เลขที่ใบส่งของ */}
+              {/* 3. เลือกร้านค้าลูกค้า (แบบค้นหาได้) & เลขที่ใบส่งของ */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
                 <div ref={customerDropdownRef} className="relative">
                   <label className="block text-xs md:text-sm text-blue-400 mb-2 font-semibold flex items-center gap-1.5">
                     <UserCheck size={16} /> 4. เลือกร้านค้า / ลูกค้าผู้รับน้ำยา (เรียงตามรหัสลูกค้า) * ({customers.length} รายการ)
                   </label>
 
-                  {/* ปุ่มหลักสำหรับกดเปิด/ปิด Dropdown */}
                   <button
                     type="button"
                     onClick={() => setIsCustomerDropdownOpen((prev) => !prev)}
@@ -826,10 +862,8 @@ export default function ChemicalSystemPage() {
                     />
                   </button>
 
-                  {/* กล่องค้นหาและรายการลูกค้าแบบการ์ด */}
                   {isCustomerDropdownOpen && (
                     <div className="mt-2 bg-slate-950 border border-slate-700 rounded-xl p-3 shadow-2xl space-y-2.5 z-30">
-                      {/* ช่องพิมพ์ค้นหา */}
                       <div className="relative">
                         <Search
                           className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -854,7 +888,6 @@ export default function ChemicalSystemPage() {
                         )}
                       </div>
 
-                      {/* รายการลูกค้าแบบ Scrollable */}
                       <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
                         {filteredCustomers.length === 0 ? (
                           <div className="py-6 text-center text-xs text-slate-400">
@@ -876,18 +909,15 @@ export default function ChemicalSystemPage() {
                                     : 'bg-slate-900/70 hover:bg-slate-900 border-slate-800/80 hover:border-slate-700'
                                 }`}
                               >
-                                {/* ป้ายรหัสลูกค้า #ID */}
                                 <span className="px-2 py-0.5 bg-blue-950 text-blue-400 border border-blue-800/60 rounded text-xs font-bold font-mono shrink-0 mt-0.5">
                                   #{c.customer_id}
                                 </span>
 
                                 <div className="min-w-0 flex-1 space-y-1">
-                                  {/* ชื่อร้าน */}
                                   <div className="text-sm font-bold text-white truncate">
                                     {c.customer_name}
                                   </div>
 
-                                  {/* รายละเอียด บจก/บริษัท, คอนแท็ก, เบอร์โทร */}
                                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
                                     {c.customer_taxname && (
                                       <span className="text-amber-400 flex items-center gap-1 truncate max-w-full">
@@ -932,10 +962,235 @@ export default function ChemicalSystemPage() {
                 </div>
               </div>
 
-              {/* 4. หมายเหตุการจัดส่ง */}
+              {/* 4. พนักงานผู้ส่ง & เหตุผลการจัดส่ง (Order Reason) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-xs md:text-sm text-emerald-400 mb-2 font-semibold flex items-center gap-1.5">
+                    <UserCheck size={16} /> 6. รายชื่อพนักงานผู้ส่ง / ผู้รับผิดชอบ *
+                  </label>
+                  <select
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
+                    value={deliveryEmployeeId}
+                    onChange={(e) => setDeliveryEmployeeId(e.target.value ? Number(e.target.value) : '')}
+                    required
+                  >
+                    <option value="" disabled>
+                      -- กรุณาเลือกพนักงานผู้ส่งจากรายชื่อ --
+                    </option>
+                    {employees.map((empItem: any, idx: number) => {
+                      const empId = getEmpId(empItem, idx);
+                      const empLabel = getEmpDisplayName(empItem, empId);
+                      return (
+                        <option key={empId} value={empId}>
+                          #{empId} {empLabel}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs md:text-sm text-slate-300 mb-2 font-semibold">
+                    7. เหตุผลการจัดส่ง (Order Reason) *
+                  </label>
+                  <select
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500 transition cursor-pointer"
+                    value={orderReason}
+                    onChange={(e) => setOrderReason(e.target.value)}
+                  >
+                    <option value="ส่งตามรอบปกติ (Standard Delivery)">
+                      ส่งตามรอบปกติ (Standard Delivery)
+                    </option>
+                    <option value="ลูกค้าสั่งด่วนนอกรอบ (Urgent Order)">
+                      ลูกค้าสั่งด่วนนอกรอบ (Urgent Order)
+                    </option>
+                    <option value="ส่งตามหลัง (ช่างลืมส่งตอน PM)">
+                      ⚠️ ส่งตามหลัง (ช่างลืมส่งตอน PM)
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 5. เลือกช่องทางจัดส่ง (3 Delivery Channels) */}
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-5 space-y-3">
+                <label className="block text-xs md:text-sm text-indigo-400 font-bold flex items-center gap-2">
+                  <Truck size={18} /> 8. เลือกช่องทางจัดส่ง (3 Delivery Channels) *
+                </label>
+
+                <div className="space-y-2.5">
+                  {/* ช่องทางที่ 1 */}
+                  <label
+                    onClick={() => setDeliveryChannel('PM_ROUND')}
+                    className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                      deliveryChannel === 'PM_ROUND'
+                        ? 'bg-emerald-600/15 border-emerald-500 text-white'
+                        : 'bg-slate-900/70 border-slate-800 text-slate-300 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="deliveryChannel"
+                        checked={deliveryChannel === 'PM_ROUND'}
+                        onChange={() => {}}
+                        className="w-4 h-4 mt-1 accent-emerald-500"
+                      />
+                      <div>
+                        <div className="text-sm font-bold text-white">1. ฝากส่งพร้อมรอบ PM</div>
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          ช่างหยิบติดรถไปให้ตอนเข้าเช็คระยะล้างเครื่องตามรอบสัญญา
+                        </div>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 bg-slate-800 text-slate-300 border border-slate-700 rounded-lg text-[11px] font-bold shrink-0">
+                      ฟรีค่าส่ง
+                    </span>
+                  </label>
+
+                  {/* ช่องทางที่ 2 */}
+                  <label
+                    onClick={() => setDeliveryChannel('DIRECT_TECH')}
+                    className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                      deliveryChannel === 'DIRECT_TECH'
+                        ? 'bg-emerald-600/15 border-emerald-500 text-white'
+                        : 'bg-slate-900/70 border-slate-800 text-slate-300 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="deliveryChannel"
+                        checked={deliveryChannel === 'DIRECT_TECH'}
+                        onChange={() => {}}
+                        className="w-4 h-4 mt-1 accent-emerald-500"
+                      />
+                      <div>
+                        <div className="text-sm font-bold text-white">2. ช่างวิ่งส่งด่วน (Direct Tech)</div>
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          ระยะใกล้/ทางผ่าน - ช่างถ่ายรูปส่งงานคู่กับหน้างานส่งลงกลุ่ม LINE
+                        </div>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg text-[11px] font-bold shrink-0">
+                      ส่งด่วน
+                    </span>
+                  </label>
+
+                  {/* ช่องทางที่ 3 */}
+                  <label
+                    onClick={() => setDeliveryChannel('EXPRESS')}
+                    className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                      deliveryChannel === 'EXPRESS'
+                        ? 'bg-indigo-600/15 border-indigo-500 text-white'
+                        : 'bg-slate-900/70 border-slate-800 text-slate-300 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="deliveryChannel"
+                        checked={deliveryChannel === 'EXPRESS'}
+                        onChange={() => {}}
+                        className="w-4 h-4 mt-1 accent-indigo-500"
+                      />
+                      <div>
+                        <div className="text-sm font-bold text-white">3. ขนส่งเอกชน (Express Courier)</div>
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          ส่งระยะไกลผ่าน Flash / Kerry / ไปรษณีย์ไทย
+                        </div>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-lg text-[11px] font-bold shrink-0">
+                      มีค่าขนส่ง
+                    </span>
+                  </label>
+                </div>
+
+                {/* กล่องกรอกรายละเอียดเมื่อเลือก ขนส่งเอกชน (Express Courier) */}
+                {deliveryChannel === 'EXPRESS' && (
+                  <div className="mt-3 bg-slate-900 border border-indigo-500/30 rounded-xl p-4 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1.5 font-medium">
+                          บริษัทขนส่ง
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="เช่น Flash Express, Kerry, ไปรษณีย์ไทย"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white text-sm outline-none focus:border-indigo-500"
+                          value={courierName}
+                          onChange={(e) => setCourierName(e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1.5 font-medium">
+                          เลข Tracking
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="เช่น TH2026998877"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white text-sm outline-none focus:border-indigo-500 font-mono"
+                          value={trackingNo}
+                          onChange={(e) => setTrackingNo(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1.5 font-medium">
+                        ค่าจัดส่งจริง (บาท)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white text-sm outline-none focus:border-indigo-500 font-bold"
+                        value={shippingCost}
+                        onChange={(e) => setShippingCost(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-2 font-medium">
+                        ผู้รับผิดชอบค่าจัดส่ง (Shipping Cost Assignment)
+                      </label>
+                      <div className="flex flex-wrap items-center gap-5">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs md:text-sm">
+                          <input
+                            type="radio"
+                            name="shippingPayer"
+                            checked={shippingPayer === 'COMPANY'}
+                            onChange={() => setShippingPayer('COMPANY')}
+                            className="w-4 h-4 accent-rose-500"
+                          />
+                          <span className={shippingPayer === 'COMPANY' ? 'text-rose-400 font-bold' : 'text-slate-300'}>
+                            บริษัทรับผิดชอบ (Company Paid)
+                          </span>
+                        </label>
+
+                        <label className="flex items-center gap-2 cursor-pointer text-xs md:text-sm">
+                          <input
+                            type="radio"
+                            name="shippingPayer"
+                            checked={shippingPayer === 'CUSTOMER'}
+                            onChange={() => setShippingPayer('CUSTOMER')}
+                            className="w-4 h-4 accent-emerald-500"
+                          />
+                          <span className={shippingPayer === 'CUSTOMER' ? 'text-emerald-400 font-bold' : 'text-slate-300'}>
+                            เรียกเก็บจากลูกค้า
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 6. หมายเหตุการจัดส่ง */}
               <div>
                 <label className="block text-xs md:text-sm text-slate-400 mb-2 font-medium">
-                  6. หมายเหตุการจัดส่ง
+                  9. หมายเหตุการจัดส่ง
                 </label>
                 <input
                   type="text"
@@ -946,10 +1201,10 @@ export default function ChemicalSystemPage() {
                 />
               </div>
 
-              {/* 5. ถ่ายรูป / แนบหลักฐานการจัดส่ง */}
+              {/* 7. ถ่ายรูป / แนบหลักฐานการจัดส่ง */}
               <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <label className="block text-xs md:text-sm text-slate-300 font-bold flex items-center gap-2">
-                  <Camera className="text-emerald-400" size={18} /> 7. ถ่ายรูปหลักฐานการจัดส่ง (ไม่บังคับ)
+                  <Camera className="text-emerald-400" size={18} /> 10. ถ่ายรูปหลักฐานการจัดส่ง (ไม่บังคับ)
                 </label>
 
                 {!photoPreview ? (

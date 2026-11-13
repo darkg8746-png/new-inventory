@@ -4,7 +4,21 @@ import { prisma } from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { productId, quantity, customerId, referenceNo, remark, employeeId, photoUrl } = body;
+    const {
+      productId,
+      quantity,
+      customerId,
+      referenceNo,
+      remark,
+      employeeId,
+      photoUrl,
+      orderReason,
+      deliveryChannel,
+      courierName,
+      trackingNo,
+      shippingCost,
+      shippingPayer,
+    } = body;
 
     if (!productId || !quantity || Number(quantity) <= 0) {
       return NextResponse.json({ success: false, error: 'กรุณาระบุสินค้าและจำนวนที่ถูกต้อง' }, { status: 400 });
@@ -17,6 +31,7 @@ export async function POST(request: Request) {
     const qtyNum = Number(quantity);
     const prodIdNum = Number(productId);
     const custIdNum = Number(customerId);
+    const shippingCostNum = Number(shippingCost || 0);
 
     const result = await prisma.$transaction(async (tx) => {
       const product = await tx.productsCatalog.findUnique({
@@ -33,9 +48,7 @@ export async function POST(request: Request) {
           productId: prodIdNum,
           remainingQty: { gt: 0 },
         },
-        orderBy: [
-          { receiveDate: 'asc' },
-        ],
+        orderBy: [{ receiveDate: 'asc' }],
       });
 
       // 2. คำนวณยอดคงเหลือจริง (รวมจาก Lot ที่มีอยู่ ถ้าไม่มี Lot ค่อยดูจาก stockQty)
@@ -99,7 +112,6 @@ export async function POST(request: Request) {
         referenceNo?.trim() ||
         `DO-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      // แก้ไขการค้นหาลูกค้าให้ใช้ customerId โดยตรง (แก้ Error customer_id)
       const customer = await tx.customers.findUnique({
         where: {
           customerId: custIdNum,
@@ -121,14 +133,29 @@ export async function POST(request: Request) {
           remark: finalRemark,
           employeeId: employeeId ? Number(employeeId) : null,
           lotDetails: {
-            create: lotUsageRecords.map(item => ({
+            create: lotUsageRecords.map((item) => ({
               lotId: item.lotId,
               quantityUsed: item.quantityUsed,
-              costApplied: item.costApplied
-            }))
-          }
+              costApplied: item.costApplied,
+            })),
+          },
         },
       });
+
+      // บันทึกลงคอลัมน์แยกสำหรับดึงรายงานค่าขนส่ง / ช่องทางจัดส่ง / เหตุผล
+      await tx.$executeRaw`
+        UPDATE public.inventory_transactions
+        SET
+          customer_id = ${custIdNum},
+          order_reason = ${orderReason || null},
+          delivery_channel = ${deliveryChannel || null},
+          courier_name = ${courierName || null},
+          tracking_no = ${trackingNo || null},
+          shipping_cost = ${shippingCostNum},
+          shipping_payer = ${shippingPayer || null},
+          delivery_photo_url = ${photoUrl || null}
+        WHERE transaction_id = ${transaction.transactionId}
+      `;
 
       // 4. ซิงค์ยอด stockQty ในตารางหลักให้ตรงกับยอดคงเหลือจริงหลังหักออก
       await tx.productsCatalog.update({
@@ -148,6 +175,9 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     console.error('Delivery API Error:', error);
-    return NextResponse.json({ success: false, error: error.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูลจัดส่ง' }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: error.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูลจัดส่ง' },
+      { status: 500 }
+    );
   }
 }
