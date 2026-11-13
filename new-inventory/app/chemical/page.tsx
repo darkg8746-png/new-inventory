@@ -242,7 +242,6 @@ export default function ChemicalSystemPage() {
         finalEmps.sort((a: any, b: any) => Number(getEmpId(a)) - Number(getEmpId(b)));
         setEmployees(finalEmps);
       }
-
     } catch (error) {
       console.error('Error fetching chemical system data:', error);
     }
@@ -448,6 +447,7 @@ export default function ChemicalSystemPage() {
           quantity: Number(deliveryQty),
           customerId: Number(selectedCustomerId),
           employeeId: isExternalSender ? null : Number(deliveryEmployeeId),
+          externalSenderName: isExternalSender ? externalSenderName.trim() : null,
           orderReason,
           deliveryChannel,
           courierName: deliveryChannel === 'EXPRESS' ? courierName : null,

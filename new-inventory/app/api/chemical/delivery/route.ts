@@ -8,16 +8,17 @@ export async function POST(request: Request) {
       productId,
       quantity,
       customerId,
-      referenceNo,
-      remark,
       employeeId,
-      photoUrl,
+      externalSenderName,
       orderReason,
       deliveryChannel,
       courierName,
       trackingNo,
       shippingCost,
       shippingPayer,
+      referenceNo,
+      remark,
+      photoUrl,
     } = body;
 
     if (!productId || !quantity || Number(quantity) <= 0) {
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
     const qtyNum = Number(quantity);
     const prodIdNum = Number(productId);
     const custIdNum = Number(customerId);
+    const empIdNum = employeeId ? Number(employeeId) : null;
     const shippingCostNum = Number(shippingCost || 0);
 
     const result = await prisma.$transaction(async (tx) => {
@@ -42,7 +44,7 @@ export async function POST(request: Request) {
         throw new Error('ไม่พบข้อมูลผลิตภัณฑ์น้ำยานี้ในระบบ');
       }
 
-      // 1. ค้นหา Lot ที่มีของเหลืออยู่จริงก่อนเสมอ
+      // 1. ค้นหา Lot ที่มีของเหลืออยู่จริง (FIFO)
       let activeLots = await tx.productLots.findMany({
         where: {
           productId: prodIdNum,
@@ -51,7 +53,6 @@ export async function POST(request: Request) {
         orderBy: [{ receiveDate: 'asc' }],
       });
 
-      // 2. คำนวณยอดคงเหลือจริง (รวมจาก Lot ที่มีอยู่ ถ้าไม่มี Lot ค่อยดูจาก stockQty)
       const lotStockTotal = activeLots.reduce((sum, lot) => sum + Number(lot.remainingQty || 0), 0);
       const currentStock = lotStockTotal > 0 ? lotStockTotal : Number(product.stockQty ?? 0);
 
@@ -59,7 +60,6 @@ export async function POST(request: Request) {
         throw new Error(`สต็อกน้ำยาไม่เพียงพอ (คงเหลือในคลัง: ${currentStock} ${product.unitName || 'ถัง'})`);
       }
 
-      // 3. ถ้าไม่มี Lot ในระบบ แต่คลังหลักมีสต็อก สร้าง Auto-Lot ให้ทันที
       if (activeLots.length === 0 && currentStock > 0) {
         const fallbackLot = await tx.productLots.create({
           data: {
@@ -108,16 +108,84 @@ export async function POST(request: Request) {
         throw new Error(`สต็อกใน Lot ไม่เพียงพอสำหรับตัดจำหน่าย (ขาดอีก ${qtyToDeduct})`);
       }
 
-      const finalRefNo =
+      const finalOrderNo =
         referenceNo?.trim() ||
         `DO-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const customer = await tx.customers.findUnique({
-        where: {
-          customerId: custIdNum,
-        },
-      });
+      const avgUnitCost = qtyNum > 0 ? totalCostApplied / qtyNum : Number(product.unitCost || 0);
+      const unitSalePrice = Number(product.salePrice || 0);
+      const totalSalePrice = unitSalePrice * qtyNum;
+      const now = new Date();
 
+      // 2. สร้างหัวบิลลงตาราง consumable_orders (1 บิล = 1 แถว เก็บค่าขนส่งและข้อมูลจัดส่ง)
+      const insertedOrders = await tx.$queryRaw<{ order_id: number }[]>`
+        INSERT INTO public.consumable_orders (
+          order_no,
+          customer_id,
+          employee_id,
+          external_sender_name,
+          order_date,
+          order_delivery_date,
+          order_total_cost,
+          order_total_price,
+          order_status,
+          order_reason,
+          delivery_channel,
+          courier_name,
+          tracking_no,
+          shipping_cost,
+          shipping_payer,
+          delivery_photo_url,
+          remark
+        )
+        VALUES (
+          ${finalOrderNo},
+          ${custIdNum},
+          ${empIdNum},
+          ${externalSenderName || null},
+          ${now},
+          ${now}::date,
+          ${totalCostApplied},
+          ${totalSalePrice},
+          'Delivered',
+          ${orderReason || null},
+          ${deliveryChannel || null},
+          ${courierName || null},
+          ${trackingNo || null},
+          ${shippingCostNum},
+          ${shippingPayer || null},
+          ${photoUrl || null},
+          ${remark || null}
+        )
+        RETURNING order_id
+      `;
+
+      const createdOrderId = insertedOrders[0]?.order_id;
+
+      // 3. สร้างรายการสินค้าลงตาราง consumable_order_items
+      if (createdOrderId) {
+        await tx.$executeRaw`
+          INSERT INTO public.consumable_order_items (
+            order_id,
+            product_id,
+            order_item_qty,
+            order_item_unit_cost,
+            order_item_sale_price
+          )
+          VALUES (
+            ${createdOrderId},
+            ${prodIdNum},
+            ${qtyNum},
+            ${avgUnitCost},
+            ${unitSalePrice}
+          )
+        `;
+      }
+
+      // 4. บันทึกบัญชีตัดสต็อกลง inventory_transactions (เก็บเฉพาะข้อมูลสต็อกและอ้างอิงเลขบิล)
+      const customer = await tx.customers.findUnique({
+        where: { customerId: custIdNum },
+      });
       const custName = customer?.customerName || 'ลูกค้าทั่วไป';
       const photoTag = photoUrl ? ` |PHOTO:${photoUrl}` : '';
       const finalRemark = `[ลูกค้า: ${custName}] ${remark || 'เปิดบิลจัดส่งน้ำยา'}${photoTag}`.trim();
@@ -127,11 +195,11 @@ export async function POST(request: Request) {
           productId: prodIdNum,
           transactionType: 'OUT',
           quantity: qtyNum,
-          transactionDate: new Date(),
-          transactionUnitCost: qtyNum > 0 ? totalCostApplied / qtyNum : Number(product.unitCost || 0),
-          referenceNo: finalRefNo,
+          transactionDate: now,
+          transactionUnitCost: avgUnitCost,
+          referenceNo: finalOrderNo,
           remark: finalRemark,
-          employeeId: employeeId ? Number(employeeId) : null,
+          employeeId: empIdNum,
           lotDetails: {
             create: lotUsageRecords.map((item) => ({
               lotId: item.lotId,
@@ -142,22 +210,7 @@ export async function POST(request: Request) {
         },
       });
 
-      // บันทึกลงคอลัมน์แยกสำหรับดึงรายงานค่าขนส่ง / ช่องทางจัดส่ง / เหตุผล
-      await tx.$executeRaw`
-        UPDATE public.inventory_transactions
-        SET
-          customer_id = ${custIdNum},
-          order_reason = ${orderReason || null},
-          delivery_channel = ${deliveryChannel || null},
-          courier_name = ${courierName || null},
-          tracking_no = ${trackingNo || null},
-          shipping_cost = ${shippingCostNum},
-          shipping_payer = ${shippingPayer || null},
-          delivery_photo_url = ${photoUrl || null}
-        WHERE transaction_id = ${transaction.transactionId}
-      `;
-
-      // 4. ซิงค์ยอด stockQty ในตารางหลักให้ตรงกับยอดคงเหลือจริงหลังหักออก
+      // 5. ซิงค์ยอดคงเหลือใน products_catalog
       await tx.productsCatalog.update({
         where: { productId: prodIdNum },
         data: {
@@ -165,12 +218,12 @@ export async function POST(request: Request) {
         },
       });
 
-      return { transaction, finalRefNo };
+      return { transaction, finalOrderNo, orderId: createdOrderId };
     });
 
     return NextResponse.json({
       success: true,
-      message: `เปิดบิลจัดส่งเลขที่ ${result.finalRefNo} และตัดสต็อกเรียบร้อยแล้ว`,
+      message: `เปิดบิลจัดส่งเลขที่ ${result.finalOrderNo} และตัดสต็อกเรียบร้อยแล้ว`,
       data: result.transaction,
     });
   } catch (error: any) {
