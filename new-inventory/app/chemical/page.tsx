@@ -53,6 +53,10 @@ interface Customer {
 }
 
 interface Employee {
+  employee_id?: number;
+  employee_name?: string;
+  employee_role?: string;
+  employee_status?: string;
   employeeId?: number;
   id?: number;
   firstName?: string;
@@ -142,6 +146,17 @@ export default function ChemicalSystemPage() {
     );
   };
 
+  const getEmpId = (emp: any, fallbackIdx?: number) =>
+    emp.employee_id ?? emp.employeeId ?? emp.id ?? (fallbackIdx !== undefined ? fallbackIdx + 1 : 0);
+
+  const getEmpDisplayName = (emp: any, id: number | string) => {
+    const fullName =
+      emp.employee_name ||
+      `${emp.firstName || emp.first_name || emp.name || ''} ${emp.lastName || emp.last_name || ''}`.trim();
+    const role = emp.employee_role || emp.role ? ` (${emp.employee_role || emp.role})` : '';
+    return fullName ? `${fullName}${role}` : `พนักงาน #${id}`;
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -207,8 +222,18 @@ export default function ChemicalSystemPage() {
         }
       }
 
-      const { data: sbEmps } = await supabase.from('employees').select('*');
-      if (sbEmps) setEmployees(sbEmps);
+      const { data: sbEmps, error: empErr } = await supabase.from('employees').select('*');
+      if (empErr) {
+        console.error('Error fetching employees:', empErr);
+      }
+      if (sbEmps) {
+        const activeEmps = sbEmps.filter(
+          (e: any) => !e.employee_status || String(e.employee_status).toLowerCase() === 'active'
+        );
+        const finalEmps = activeEmps.length > 0 ? activeEmps : sbEmps;
+        finalEmps.sort((a: any, b: any) => Number(getEmpId(a)) - Number(getEmpId(b)));
+        setEmployees(finalEmps);
+      }
 
     } catch (error) {
       console.error('Error fetching chemical system data:', error);
@@ -296,10 +321,10 @@ export default function ChemicalSystemPage() {
     if (!selectedEmployeeId) return alert('กรุณาเลือกพนักงานผู้เบิกจากรายการ');
 
     const selectedEmp = employees.find(
-      (emp) => (emp.employeeId ?? emp.id) === Number(selectedEmployeeId)
+      (emp, idx) => Number(getEmpId(emp, idx)) === Number(selectedEmployeeId)
     );
     const empName = selectedEmp
-      ? `${selectedEmp.firstName || selectedEmp.name || ''} ${selectedEmp.lastName || ''}`.trim()
+      ? getEmpDisplayName(selectedEmp, selectedEmployeeId)
       : `ID: ${selectedEmployeeId}`;
 
     const defaultDesc = isDilutionProcess
@@ -331,7 +356,7 @@ export default function ChemicalSystemPage() {
       if (data.success) {
         alert(
           isDilutionProcess
-            ? `✅ บันทึกสำเร็จ!\n- ตัดสต็อกหัวเชื้อ: ${batchQty} ถัง\n- เพิ่มสต็อกน้ำยาผสม: ${expectedMixedYield} ถัง (สูตร 1:2)`
+            ? `✅ บันทึกสำเร็จ!\nตัดสต็อกหัวเชื้อ: ${batchQty} ถัง\nเพิ่มสต็อกน้ำยาผสม: ${expectedMixedYield} ถัง (สูตร 1:2)`
             : '✅ บันทึกการเบิกหัวเชื้อเรียบร้อยแล้ว'
         );
         setBatchRemark('');
@@ -615,11 +640,11 @@ export default function ChemicalSystemPage() {
                     -- กรุณาเลือกพนักงานผู้เบิกจากรายชื่อ --
                   </option>
                   {employees.map((empItem: any, idx: number) => {
-                    const empId = empItem.employeeId ?? empItem.id ?? idx + 1;
-                    const empName = `${empItem.firstName || empItem.name || ''} ${empItem.lastName || ''}`.trim() || `พนักงาน #${empId}`;
+                    const empId = getEmpId(empItem, idx);
+                    const empLabel = getEmpDisplayName(empItem, empId);
                     return (
                       <option key={empId} value={empId}>
-                        #{empId} {empName}
+                        #{empId} {empLabel}
                       </option>
                     );
                   })}
